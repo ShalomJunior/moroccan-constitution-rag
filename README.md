@@ -24,6 +24,8 @@ For the optional local API: `pip install -e '.[api]'` then `constitution-evidenc
 
 The downloaded PDF, OCR model, generated text, and runs are ignored by Git. The PDF source, edition, hash, and extraction status are recorded in `data/processed/manifest.json` after ingestion. This project does not claim evaluated factual reliability until the OCR and benchmark have been reviewed. See [scope](docs/project-scope.md), [limitations](docs/limitations.md), and [Gitflow](docs/gitflow.md).
 
+The provisional 15-question calibration can be rerun with `constitution-evidence evaluate --questions data/annotations/calibration.jsonl --split dev --run-id calibration-bm25 --strategy bm25`. A run saves each question and resumes if its inputs and configuration match. Article recall and MRR are available for these questions; evidence-span metrics need the reviewed annotations described in the [annotation guide](docs/annotation-guide.md).
+
 ## Retrieval options
 
 BM25 uses [BM25S](https://github.com/xhluca/bm25s). Install `pip install -e '.[dense]'` to enable CPU dense search with [FastEmbed](https://qdrant.github.io/fastembed/) and [FAISS](https://github.com/facebookresearch/faiss). `--strategy dense`, `hybrid`, and `hybrid-rerank` are available on `ask` and `evaluate`; embedding models download on first use. The dense index is reused only when its model ID and corpus hash match. These candidates have not been selected on a validated benchmark.

@@ -1,5 +1,6 @@
 import argparse
 import json
+import re
 from pathlib import Path
 from . import __version__
 from .evidence import extractive_answer, pack
@@ -26,6 +27,7 @@ def main(argv=None):
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
     p.add_argument("--run-id", required=True)
     p.add_argument("--k", type=int, default=10)
+    p.add_argument("--context-chars", type=int, default=7000)
     p.add_argument("--strategy", choices=["bm25", "dense", "hybrid", "hybrid-rerank"], default="bm25")
     p = sub.add_parser("report")
     p.add_argument("--run-id", required=True)
@@ -72,8 +74,13 @@ def main(argv=None):
             supplied = records if args.context == "fulltext" else hits
             result = GeminiGenerator().generate(args.question, supplied, metadata)
     elif args.command == "evaluate":
-        result = evaluate(args.questions, passages, args.split, ROOT / "runs" / args.run_id, args.k, args.strategy)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.run_id):
+            raise ValueError("Run ID must be a simple name of at most 80 characters")
+        result = evaluate(args.questions, passages, args.split, ROOT / "runs" / args.run_id,
+                          args.k, args.strategy, args.context_chars)
     elif args.command == "report":
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.run_id):
+            raise ValueError("Run ID must be a simple name of at most 80 characters")
         result = report(ROOT / "runs" / args.run_id)
     else:
         try:

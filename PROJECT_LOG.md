@@ -12,3 +12,9 @@
 - Replaced handwritten BM25 with BM25S and added FastEmbed ONNX + FAISS exact dense search. A 15-question provisional French calibration run gave article Recall@10 of 1.00 BM25, 0.93 dense, and 1.00 hybrid. These are author-written smoke questions and are not a benchmark result.
 - Added a local Qwen3 1.7B adapter for llama.cpp with schema-shaped JSON, quote/hash/offset validation, and explicit OCR warning. No legal reviewer or Gemini key is available; final legal fidelity and provider comparisons remain gated.
 - Added a `develop` branch and Gitflow guidance. Release branch and tag follow the reviewed corpus and frozen evaluation.
+
+## 2026-10-17 — Evaluation contract and recovery
+
+- Separated article recall/MRR from evidence-span coverage. The 15-question provisional calibration lacks reviewed spans, so evidence coverage is now reported as unavailable rather than inferred from article matches.
+- Added exact passage-span labels and alternative sufficient evidence sets to the evaluation contract. Run artifacts now save after each question and resume only with matching inputs, configuration, and evaluator code. The run report states whether all planned questions are present.
+- Seven offline contract tests pass. The corpus remains `unreviewed_ocr`; no final benchmark or legal reliability claim follows from these checks.
