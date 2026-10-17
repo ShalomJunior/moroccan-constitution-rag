@@ -1,0 +1,9 @@
+{
+  "source_url": "https://maroc.ma/sites/default/files/2024-10/constitution_du_1er_juillet_2011.pdf",
+  "source_page": "https://maroc.ma/fr/le-maroc/constitution",
+  "pdf_path": "data/raw/constitution_2011_fr_marocma.pdf",
+  "edition_id": "ma-constitution-2011",
+  "language": "fr",
+  "expected_articles": 180,
+  "ocr_dpi": 170
+}

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Constitution Evidence</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.55 system-ui, sans-serif; background: #f6f5f0; color: #172c28; }
+    body { max-width: 880px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+    h1 { margin-bottom: .3rem; font-size: 2rem; }
+    .sub { color: #52635e; margin-top: 0; }
+    form { display: flex; flex-wrap: wrap; gap: .5rem; margin: 2rem 0; }
+    input { flex: 1; padding: .8rem; border: 1px solid #aebcb6; border-radius: .4rem; font: inherit; }
+    button { padding: .8rem 1.2rem; border: 0; border-radius: .4rem; background: #135b4a; color: white; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .6; }
+    article { background: white; border: 1px solid #d6ded9; border-radius: .6rem; padding: 1rem 1.2rem; margin: .8rem 0; }
+    article p { white-space: pre-wrap; }
+    .meta { font-size: .9rem; color: #53645d; }
+    a { color: #135b4a; }
+    .notice { background: #fff8dd; padding: .8rem 1rem; border-radius: .4rem; }
+  </style>
+</head>
+<body>
+  <h1>Constitution Evidence</h1>
+  <p class="sub">Extraits de la Constitution marocaine de 2011, édition française.</p>
+  <p class="notice">Texte issu d’une reconnaissance optique non encore relue. Les extraits sont des pistes documentaires, sans validation de leur pertinence juridique.</p>
+  <form id="ask-form"><input id="question" name="question" maxlength="2000" required placeholder="Ex. Que dit l’article 20 sur le droit à la vie ?"><select id="generator" aria-label="Mode de réponse"><option value="extractive">Extraits</option><option value="local">Résumé local expérimental</option></select><button id="submit">Chercher</button></form>
+  <main id="results" aria-live="polite"></main>
+  <script>
+    const form = document.getElementById('ask-form');
+    const results = document.getElementById('results');
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = document.getElementById('submit');
+      button.disabled = true;
+      results.replaceChildren();
+      try {
+        const response = await fetch('/ask', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question: document.getElementById('question').value, generator: document.getElementById('generator').value})});
+        if (!response.ok) throw new Error('Recherche indisponible (' + response.status + ')');
+        const answer = await response.json();
+        const note = document.createElement('p'); note.className = 'meta'; note.textContent = answer.limitations || '';
+        results.append(note);
+        answer.claims.forEach((claim, i) => {
+          const source = answer.sources.find(s => s.passage_id === claim.evidence_spans[0].passage_id);
+          const card = document.createElement('article');
+          const title = document.createElement('strong'); title.textContent = source.article_number ? 'Article ' + source.article_number : 'Préambule';
+          const excerpt = document.createElement('p'); excerpt.textContent = claim.text;
+          const link = document.createElement('a'); link.textContent = 'Voir le PDF, page ' + source.page_spans[0];
+          link.href = source.source_url + '#page=' + source.page_spans[0]; link.target = '_blank'; link.rel = 'noopener noreferrer';
+          card.append(title, excerpt, link); results.append(card);
+        });
+      } catch (error) { const p = document.createElement('p'); p.textContent = error.message; results.append(p); }
+      finally { button.disabled = false; }
+    });
+  </script>
+</body>
+</html>
