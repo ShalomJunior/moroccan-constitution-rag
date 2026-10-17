@@ -22,6 +22,7 @@ class AskRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20)
     generator: Literal["extractive", "local"] = "extractive"
     strategy: Literal["bm25", "dense", "hybrid", "hybrid-rerank"] = "bm25"
+    expand_references: bool = False
 
 @lru_cache(maxsize=2)
 def _load_corpus(manifest_hash: str):
@@ -50,6 +51,16 @@ def _engine(manifest_hash: str, strategy: str):
         return Dense(rows, index_dir=index_dir)
     return Hybrid(rows, index_dir=index_dir, rerank=strategy == "hybrid-rerank")
 
+@lru_cache(maxsize=8)
+def _reference_engine(manifest_hash: str, strategy: str):
+    from .references import ReferenceExpander
+    article_path, _, _ = corpus_paths()
+    _, manifest, passages = _load_corpus(manifest_hash)
+    if digest(article_path.read_bytes()) != manifest["corpus_hash"]:
+        raise ValueError("Articles hash does not match the active manifest")
+    return ReferenceExpander(_engine(manifest_hash, strategy), read_jsonl(article_path),
+                             list(passages.values()), review_status=manifest["review_status"])
+
 @app.get("/health")
 def health():
     try:
@@ -72,7 +83,8 @@ def ask(request: AskRequest):
         _, _, manifest_path = corpus_paths()
         manifest_hash = digest(manifest_path.read_bytes())
         _, manifest, _ = _load_corpus(manifest_hash)
-        engine = _engine(manifest_hash, request.strategy)
+        engine = (_reference_engine(manifest_hash, request.strategy) if request.expand_references
+                  else _engine(manifest_hash, request.strategy))
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         raise HTTPException(503, str(exc)) from exc
     hits = engine.search(request.question, request.top_k)
@@ -85,6 +97,7 @@ def ask(request: AskRequest):
     else:
         answer = extractive_answer(hits, manifest)
     answer["retrieval_strategy"] = request.strategy
+    answer["reference_expansion"] = request.expand_references
     return answer
 
 @app.get("/sources/{source_id:path}")

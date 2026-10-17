@@ -31,3 +31,9 @@
 - Explicit article lists now retrieve passages across all named articles, and preamble lookup is direct. Hybrid search postpones dense model loading until a query needs it.
 - The API and interface expose BM25, dense, hybrid, and hybrid plus reranking. The interface opens the exact passage behind each citation. Real BM25 and hybrid smoke queries returned both articles 20 and 21 for a two-article question.
 - This improves the answer path but does not establish semantic support or legal completeness on the unreviewed corpus.
+
+## 2026-10-17 — Explicit reference expansion
+
+- Added an optional one-hop reference graph from article text, with exact quote offsets and target inventory checks. A query can reserve one result for an article cited inside a retrieved passage, without recursive expansion.
+- Exposed the option in the CLI, API, and interface, and attached reference provenance to returned sources. On the current corpus, a query for article 51 returned article 96 via the explicit text “articles 96, 97 et 98”.
+- The graph is extracted from unreviewed OCR. It is an experimental retrieval option, not a measured improvement or a verified legal interpretation.

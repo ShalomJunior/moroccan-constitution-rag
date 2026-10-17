@@ -49,5 +49,7 @@ def extractive_answer(hits: list[dict], manifest: dict, max_chars: int = 12000) 
     answer = {"status": "partially_answered", "claims": claims,
               "limitations": "Extraits retrouvés automatiquement ; leur pertinence et l'exhaustivité de la réponse ne sont pas vérifiées.",
               "sources": [{"passage_id": h["passage_id"], "article_number": h["article_number"],
-                           "page_spans": h["page_spans"], "source_url": manifest["source_url"]} for h in supplied[:5]]}
+                           "page_spans": h["page_spans"], "source_url": manifest["source_url"],
+                           "retriever": h.get("retriever"), "reference": h.get("reference")}
+                          for h in supplied[:5]]}
     return validate_answer(answer, supplied)

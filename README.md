@@ -36,6 +36,8 @@ The local interface is at `http://127.0.0.1:8000/` after `constitution-evidence 
 The interface lets you select a retrieval strategy and open the exact passage behind each citation. Explicit questions naming several articles distribute the first results across those articles; the preamble can also be looked up directly.
 The API accepts a strategy in `POST /ask`, for example `{"question":"Que disent les articles 20 et 21 ?","top_k":5,"strategy":"hybrid","generator":"extractive"}`. Responses include the strategy used. A dense strategy requires the `dense` extra and downloads its model on first use.
 
+Reference expansion is optional: select “Suivre les renvois” in the interface, pass `--expand-references` to `constitution-evidence ask`, or set `"expand_references":true` in `POST /ask`. It follows at most one explicit article reference found in a retrieved passage, and the added source records the originating article, passage, exact reference quote, and offsets. It never follows a second hop. This is an experimental evidence-gathering feature; its benefit has not been measured on reviewed questions.
+
 ## Local open model
 
 The optional [local Qwen setup](docs/local-model.md) uses llama.cpp on `127.0.0.1:8080` and costs no API calls. Run `constitution-evidence ask 'Votre question' --generator local` or select “Résumé local expérimental” in the interface. Exact citations are checked server side; semantic correctness and OCR quality are still unverified. A Gemini adapter remains optional for future comparisons, but no key is needed for the local or extractive modes.

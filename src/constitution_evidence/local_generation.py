@@ -83,7 +83,9 @@ class LocalGenerator:
             answer = {"status": status, "claims": claims, "limitations": limitation,
                       "clarification_question": raw.get("clarification_question", ""),
                       "sources": [{"passage_id": pid, "article_number": permitted[pid]["article_number"],
-                                   "page_spans": permitted[pid]["page_spans"], "source_url": manifest["source_url"]}
+                                   "page_spans": permitted[pid]["page_spans"], "source_url": manifest["source_url"],
+                                   "retriever": permitted[pid].get("retriever"),
+                                   "reference": permitted[pid].get("reference")}
                                   for pid in used],
                       "model": self.model, "prompt_version": LOCAL_PROMPT_VERSION,
                       "usage": result.get("usage"), "source_quality": manifest.get("review_status")}

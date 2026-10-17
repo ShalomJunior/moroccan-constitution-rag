@@ -23,6 +23,7 @@ def main(argv=None):
     p.add_argument("question")
     p.add_argument("--top-k", type=int, default=5)
     p.add_argument("--strategy", choices=["bm25", "dense", "hybrid", "hybrid-rerank"], default="bm25")
+    p.add_argument("--expand-references", action="store_true")
     p.add_argument("--generator", choices=["extractive", "local", "gemini"], default="extractive")
     p.add_argument("--context", choices=["retrieved", "fulltext"], default="retrieved")
     p = sub.add_parser("evaluate")
@@ -71,6 +72,12 @@ def main(argv=None):
             engine = Dense(records, index_dir=ROOT / "data/processed/dense-index")
         else:
             engine = Hybrid(records, index_dir=ROOT / "data/processed/dense-index", rerank=args.strategy == "hybrid-rerank")
+        if args.expand_references:
+            from .references import ReferenceExpander
+            if digest(articles.read_bytes()) != metadata["corpus_hash"]:
+                raise ValueError("Articles hash does not match the active manifest")
+            engine = ReferenceExpander(engine, read_jsonl(articles), records,
+                                       review_status=metadata["review_status"])
         hits = engine.search(args.question, args.top_k)
         if args.generator == "extractive":
             if args.context == "fulltext":

@@ -72,7 +72,9 @@ class GeminiGenerator:
             answer = {"status": raw.status, "claims": claims, "limitations": raw.limitations,
                       "clarification_question": raw.clarification_question,
                       "sources": [{"passage_id": pid, "article_number": permitted[pid]["article_number"],
-                                   "page_spans": permitted[pid]["page_spans"], "source_url": manifest["source_url"]}
+                                   "page_spans": permitted[pid]["page_spans"], "source_url": manifest["source_url"],
+                                   "retriever": permitted[pid].get("retriever"),
+                                   "reference": permitted[pid].get("reference")}
                                   for pid in used],
                       "model": self.model, "prompt_version": PROMPT_VERSION, "input_tokens_preflight": count,
                       "usage": response.usage_metadata.model_dump() if response.usage_metadata else None}

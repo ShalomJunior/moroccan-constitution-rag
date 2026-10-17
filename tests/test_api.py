@@ -21,5 +21,16 @@ class ApiContracts(unittest.TestCase):
         self.assertEqual(result["retrieval_strategy"], "hybrid")
         self.assertEqual(result["sources"][0]["article_number"], 1)
 
+    def test_reference_expansion_selects_bounded_engine(self):
+        class Engine:
+            def search(self, question, top_k):
+                return []
+        with patch("constitution_evidence.api.corpus_paths", return_value=(None, None, Path(__file__))):
+            with patch("constitution_evidence.api._load_corpus", return_value=(None, {"source_url": "https://example.org/a.pdf"}, {})):
+                with patch("constitution_evidence.api._reference_engine", return_value=Engine()) as select:
+                    result = ask(AskRequest(question="article 1", expand_references=True))
+        self.assertEqual(select.call_args.args[1], "bm25")
+        self.assertTrue(result["reference_expansion"])
+
 if __name__ == "__main__":
     unittest.main()
