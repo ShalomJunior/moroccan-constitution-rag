@@ -5,6 +5,20 @@ from collections import Counter
 import bm25s
 
 ARTICLE_QUERY = re.compile(r"\barticles?\s+(\d{1,3})\b", re.IGNORECASE)
+ARTICLE_LIST = re.compile(r"\barticles\s+(\d{1,3}(?:(?:\s*(?:,|;|et|ou)\s*)\d{1,3})*)", re.IGNORECASE)
+PREAMBLE_QUERY = re.compile(r"\bpr[ée]ambule\b", re.IGNORECASE)
+
+def explicit_article_numbers(question: str) -> list[int]:
+    """Return named article numbers, including simple French article lists."""
+    matches = [(match.start(), int(match.group(1))) for match in ARTICLE_QUERY.finditer(question)]
+    for match in ARTICLE_LIST.finditer(question):
+        for number in re.findall(r"\d{1,3}", match.group(1)):
+            matches.append((match.start(), int(number)))
+    ordered = []
+    for _, number in sorted(matches):
+        if 1 <= number <= 180 and number not in ordered:
+            ordered.append(number)
+    return ordered
 
 def normalize(text: str) -> str:
     folded = unicodedata.normalize("NFKD", text.casefold())
@@ -21,14 +35,32 @@ class BM25:
             raise ValueError("Question must be nonempty and k must be positive")
         if not self.passages:
             return []
-        direct = ARTICLE_QUERY.search(question)
-        wanted = int(direct.group(1)) if direct else None
-        if wanted is not None:
-            direct_hits = [p for p in self.passages if p["article_number"] == wanted]
-            if direct_hits:
-                return [{**p, "score": 1.0, "rank": rank, "retriever": "article_lookup"}
-                        for rank, p in enumerate(direct_hits[:k], 1)]
+        wanted = explicit_article_numbers(question)
+        if not wanted and PREAMBLE_QUERY.search(question):
+            wanted = [0]
         query_tokens = bm25s.tokenize(normalize(question), stopwords=None, show_progress=False)
+        if wanted:
+            ids, scores = self.index.retrieve(query_tokens, k=len(self.passages), show_progress=False)
+            lexical_scores = {int(index): float(score) for index, score in zip(ids[0], scores[0])}
+            groups = []
+            for number in wanted:
+                candidates = [(lexical_scores.get(i, 0.0), p) for i, p in enumerate(self.passages)
+                              if p["article_number"] == number]
+                candidates.sort(key=lambda row: (-row[0], row[1]["paragraph_index"]))
+                if candidates:
+                    groups.append(candidates)
+            if groups:
+                ordered = []
+                for offset in range(max(map(len, groups))):
+                    for group in groups:
+                        if offset < len(group):
+                            ordered.append(group[offset])
+                            if len(ordered) == k:
+                                break
+                    if len(ordered) == k:
+                        break
+                return [{**p, "score": round(score, 6), "rank": rank, "retriever": "article_lookup"}
+                        for rank, (score, p) in enumerate(ordered, 1)]
         ids, scores = self.index.retrieve(query_tokens, k=min(len(self.passages), max(k, 20)), show_progress=False)
         ranked = {}
         for index, score in zip(ids[0], scores[0]):
@@ -119,13 +151,20 @@ class Reranker:
 class Hybrid:
     def __init__(self, passages: list[dict], index_dir=None, rerank: bool = False):
         self.lexical = BM25(passages)
-        self.dense = Dense(passages, index_dir=index_dir)
-        self.reranker = Reranker() if rerank else None
+        self.passages = passages
+        self.index_dir = index_dir
+        self.dense = None
+        self.rerank_enabled = rerank
+        self.reranker = None
 
     def search(self, question: str, k: int = 5, lexical_k: int = 20, dense_k: int = 20) -> list[dict]:
-        if ARTICLE_QUERY.search(question):
+        if explicit_article_numbers(question) or PREAMBLE_QUERY.search(question):
             direct = self.lexical.search(question, k)
             if direct and direct[0]["retriever"] == "article_lookup":
                 return direct
+        if self.dense is None:
+            self.dense = Dense(self.passages, index_dir=self.index_dir)
         candidates = rrf([self.lexical.search(question, lexical_k), self.dense.search(question, dense_k)], k=max(k, 20))
+        if self.rerank_enabled and self.reranker is None:
+            self.reranker = Reranker()
         return self.reranker.rerank(question, candidates, k) if self.reranker else candidates[:k]

@@ -39,7 +39,7 @@ def extractive_answer(hits: list[dict], manifest: dict, max_chars: int = 12000) 
     if not supplied:
         return {"status": "insufficient_evidence", "claims": [], "limitations": "Aucun passage trouvé dans le corpus.", "sources": []}
     claims = []
-    for hit in supplied[:3]:
+    for hit in supplied[:5]:
         quote = hit["canonical_text"].strip()
         if len(quote) > 800:
             quote = quote[:800].rsplit(" ", 1)[0]
@@ -49,5 +49,5 @@ def extractive_answer(hits: list[dict], manifest: dict, max_chars: int = 12000) 
     answer = {"status": "partially_answered", "claims": claims,
               "limitations": "Extraits retrouvés automatiquement ; leur pertinence et l'exhaustivité de la réponse ne sont pas vérifiées.",
               "sources": [{"passage_id": h["passage_id"], "article_number": h["article_number"],
-                           "page_spans": h["page_spans"], "source_url": manifest["source_url"]} for h in supplied[:3]]}
+                           "page_spans": h["page_spans"], "source_url": manifest["source_url"]} for h in supplied[:5]]}
     return validate_answer(answer, supplied)

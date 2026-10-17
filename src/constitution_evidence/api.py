@@ -5,9 +5,10 @@ from urllib.parse import unquote
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from typing import Literal
 from . import __version__
 from .evidence import extractive_answer, pack
-from .retrieval import BM25
+from .retrieval import BM25, Dense, Hybrid
 from .store import ROOT, corpus_paths, read_jsonl, digest
 
 app = FastAPI(title="Constitution Evidence", version=__version__)
@@ -19,7 +20,8 @@ def home():
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=5, ge=1, le=20)
-    generator: str = Field(default="extractive", pattern="^(extractive|local)$")
+    generator: Literal["extractive", "local"] = "extractive"
+    strategy: Literal["bm25", "dense", "hybrid", "hybrid-rerank"] = "bm25"
 
 @lru_cache(maxsize=2)
 def _load_corpus(manifest_hash: str):
@@ -36,6 +38,17 @@ def _load_corpus(manifest_hash: str):
 def corpus():
     _, _, manifest_path = corpus_paths()
     return _load_corpus(digest(manifest_path.read_bytes()))
+
+@lru_cache(maxsize=8)
+def _engine(manifest_hash: str, strategy: str):
+    bm25, _, passages = _load_corpus(manifest_hash)
+    if strategy == "bm25":
+        return bm25
+    rows = list(passages.values())
+    index_dir = ROOT / "data/processed/dense-index"
+    if strategy == "dense":
+        return Dense(rows, index_dir=index_dir)
+    return Hybrid(rows, index_dir=index_dir, rerank=strategy == "hybrid-rerank")
 
 @app.get("/health")
 def health():
@@ -56,17 +69,23 @@ def version():
 @app.post("/ask")
 def ask(request: AskRequest):
     try:
-        engine, manifest, _ = corpus()
-    except (FileNotFoundError, ValueError) as exc:
+        _, _, manifest_path = corpus_paths()
+        manifest_hash = digest(manifest_path.read_bytes())
+        _, manifest, _ = _load_corpus(manifest_hash)
+        engine = _engine(manifest_hash, request.strategy)
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
         raise HTTPException(503, str(exc)) from exc
     hits = engine.search(request.question, request.top_k)
     if request.generator == "local":
         from .local_generation import LocalGenerator, GenerationError
         try:
-            return LocalGenerator().generate(request.question, pack(hits, 7000), manifest)
+            answer = LocalGenerator().generate(request.question, pack(hits, 7000), manifest)
         except GenerationError as exc:
             raise HTTPException(503, str(exc)) from exc
-    return extractive_answer(hits, manifest)
+    else:
+        answer = extractive_answer(hits, manifest)
+    answer["retrieval_strategy"] = request.strategy
+    return answer
 
 @app.get("/sources/{source_id:path}")
 def source(source_id: str):

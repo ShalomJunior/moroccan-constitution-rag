@@ -3,7 +3,8 @@ import tempfile
 import json
 from pathlib import Path
 from constitution_evidence.ingestion import parse_articles, validate_articles, make_passages
-from constitution_evidence.retrieval import BM25
+from unittest.mock import patch
+from constitution_evidence.retrieval import BM25, Hybrid, explicit_article_numbers
 from constitution_evidence.evidence import extractive_answer, validate_answer
 from constitution_evidence.evaluation import score_retrieval, evaluate, report
 from constitution_evidence.store import write_jsonl, read_jsonl
@@ -27,6 +28,20 @@ class Contracts(unittest.TestCase):
         answer["claims"][0]["evidence_spans"][0]["quote"] = "invented"
         with self.assertRaises(ValueError):
             validate_answer(answer, hits)
+
+    def test_multiple_explicit_articles_get_distinct_first_passages(self):
+        self.assertEqual(explicit_article_numbers("Comparer les articles 20, 21 et 22"), [20, 21, 22])
+        self.assertEqual(explicit_article_numbers("article 1 et article 2"), [1, 2])
+        hits = BM25(self.passages).search("Comparer les articles 1 et 2", 2)
+        self.assertEqual([hit["article_number"] for hit in hits], [1, 2])
+        self.assertTrue(all(hit["retriever"] == "article_lookup" for hit in hits))
+        preamble = BM25(self.passages).search("Que dit le préambule ?", 1)
+        self.assertEqual(preamble[0]["article_number"], 0)
+
+    def test_hybrid_explicit_lookup_does_not_load_dense_model(self):
+        with patch("constitution_evidence.retrieval.Dense", side_effect=AssertionError("dense loaded")):
+            hits = Hybrid(self.passages).search("articles 1 et 2", 2)
+        self.assertEqual([hit["article_number"] for hit in hits], [1, 2])
 
     def test_article_dedup_and_cutoff(self):
         hits = [{"article_number": n} for n in [1] * 3 + list(range(2, 11)) + [11]]

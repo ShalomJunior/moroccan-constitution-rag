@@ -25,3 +25,9 @@
 - Added a static report covering the preamble and all 180 articles, with links to the PDF pages and raw OCR pages. It is an inspection aid, not a review verdict.
 - Added exact OCR-page corrections anchored to the source PDF and raw page hashes. Re-ingestion applies them before article parsing, then rebuilds passage offsets and records the correction file hash. No corrections have been asserted without checking the PDF.
 - The corpus still has `unreviewed_ocr` status and needs full human comparison with the PDF before release.
+
+## 2026-10-17 — Multi-article answers and API retrieval
+
+- Explicit article lists now retrieve passages across all named articles, and preamble lookup is direct. Hybrid search postpones dense model loading until a query needs it.
+- The API and interface expose BM25, dense, hybrid, and hybrid plus reranking. The interface opens the exact passage behind each citation. Real BM25 and hybrid smoke queries returned both articles 20 and 21 for a two-article question.
+- This improves the answer path but does not establish semantic support or legal completeness on the unreviewed corpus.
