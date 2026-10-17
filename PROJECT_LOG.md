@@ -17,4 +17,5 @@
 
 - Separated article recall/MRR from evidence-span coverage. The 15-question provisional calibration lacks reviewed spans, so evidence coverage is now reported as unavailable rather than inferred from article matches.
 - Added exact passage-span labels and alternative sufficient evidence sets to the evaluation contract. Run artifacts now save after each question and resume only with matching inputs, configuration, and evaluator code. The run report states whether all planned questions are present.
-- Seven offline contract tests pass. The corpus remains `unreviewed_ocr`; no final benchmark or legal reliability claim follows from these checks.
+- Eight offline contract tests pass. The corpus remains `unreviewed_ocr`; no final benchmark or legal reliability claim follows from these checks.
+- Expanded the Kaggle Qwen4B notebook to save and resume all 15 provisional generation questions, with exact contexts, model/corpus hashes, prompt version, elapsed time, and errors. Kaggle execution is still pending.
