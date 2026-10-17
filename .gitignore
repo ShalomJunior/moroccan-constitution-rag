@@ -9,3 +9,4 @@ data/processed/
 data/models/
 runs/*
 !runs/.gitkeep
+reports/ocr-audit.html

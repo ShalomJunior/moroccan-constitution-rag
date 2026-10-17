@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from .corrections import apply_page_corrections
 from .store import ROOT, corpus_paths, digest, write_jsonl
 
 ARTICLE = re.compile(r"^\s*['‘]?\s*(?:Article|Artiele)\s+(premier|1er|\d{1,3})(?:\s*[|L])?\s*$", re.IGNORECASE)
@@ -154,7 +155,8 @@ def extract_pages(pdf: Path, pages_dir: Path, dpi: int = 170, tessdata: Path | N
         output.append(target.read_text(encoding="utf-8"))
     return output
 
-def ingest(config_path: Path, root: Path = ROOT, tessdata: Path | None = None) -> dict:
+def ingest(config_path: Path, root: Path = ROOT, tessdata: Path | None = None,
+           corrections: Path | None = None) -> dict:
     config = json.loads(config_path.read_text(encoding="utf-8"))
     pdf = root / config["pdf_path"]
     pdf_bytes = pdf.read_bytes()
@@ -167,6 +169,8 @@ def ingest(config_path: Path, root: Path = ROOT, tessdata: Path | None = None) -
     dpi = config.get("ocr_dpi", 170)
     cache_key = digest(f"{pdf_hash}:{dpi}:{language_hash}")[:16]
     pages = extract_pages(pdf, root / "data/processed/pages" / cache_key, dpi, ocr_dir)
+    correction_path = corrections or root / "data/annotations/ocr-corrections.jsonl"
+    pages, corrections_hash, correction_count = apply_page_corrections(pages, correction_path, pdf_hash)
     articles = parse_articles(pages, config["edition_id"])
     validate_articles(articles, config["expected_articles"])
     passages = make_passages(articles)
@@ -184,6 +188,7 @@ def ingest(config_path: Path, root: Path = ROOT, tessdata: Path | None = None) -
                 "ocr_dpi": dpi, "page_cache_key": cache_key,
                 "tesseract_version": subprocess.check_output(["tesseract", "--version"], text=True, stderr=subprocess.STDOUT).splitlines()[0],
                 "fra_traineddata_sha256": language_hash,
+                "ocr_corrections_sha256": corrections_hash, "ocr_correction_count": correction_count,
                 "ingested_at": datetime.now(timezone.utc).isoformat(), "review_status": "unreviewed_ocr"}
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return manifest

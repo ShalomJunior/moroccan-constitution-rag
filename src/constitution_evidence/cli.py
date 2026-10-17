@@ -15,7 +15,10 @@ def main(argv=None):
     p = sub.add_parser("ingest")
     p.add_argument("--config", type=Path, default=ROOT / "configs/corpus.json")
     p.add_argument("--tessdata", type=Path)
+    p.add_argument("--corrections", type=Path)
     sub.add_parser("validate-corpus")
+    p = sub.add_parser("audit-corpus")
+    p.add_argument("--output", type=Path, default=ROOT / "reports/ocr-audit.html")
     p = sub.add_parser("ask")
     p.add_argument("question")
     p.add_argument("--top-k", type=int, default=5)
@@ -35,7 +38,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     articles, passages, manifest = corpus_paths()
     if args.command == "ingest":
-        result = ingest(args.config, tessdata=args.tessdata)
+        result = ingest(args.config, tessdata=args.tessdata, corrections=args.corrections)
     elif args.command == "validate-corpus":
         records = read_jsonl(articles)
         validate_articles(records)
@@ -48,6 +51,15 @@ def main(argv=None):
             raise ValueError("Passages hash mismatch")
         result = {"articles": len(records), "passages": len(chunks), "valid": True,
                   "review_status": metadata["review_status"]}
+    elif args.command == "audit-corpus":
+        from .corrections import write_audit_html
+        records = read_jsonl(articles)
+        metadata = json.loads(manifest.read_text())
+        if digest(articles.read_bytes()) != metadata["corpus_hash"]:
+            raise ValueError("Corpus hash mismatch")
+        config = json.loads((ROOT / "configs/corpus.json").read_text())
+        result = write_audit_html(records, metadata, args.output, ROOT / config["pdf_path"],
+                                  ROOT / "data/processed/pages" / metadata["page_cache_key"])
     elif args.command == "ask":
         records = read_jsonl(passages)
         metadata = json.loads(manifest.read_text())

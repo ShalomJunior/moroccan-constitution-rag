@@ -19,3 +19,9 @@
 - Added exact passage-span labels and alternative sufficient evidence sets to the evaluation contract. Run artifacts now save after each question and resume only with matching inputs, configuration, and evaluator code. The run report states whether all planned questions are present.
 - Eight offline contract tests pass. The corpus remains `unreviewed_ocr`; no final benchmark or legal reliability claim follows from these checks.
 - Expanded the Kaggle Qwen4B notebook to save and resume all 15 provisional generation questions, with exact contexts, model/corpus hashes, prompt version, elapsed time, and errors. Kaggle execution is still pending.
+
+## 2026-10-17 — OCR review workflow
+
+- Added a static report covering the preamble and all 180 articles, with links to the PDF pages and raw OCR pages. It is an inspection aid, not a review verdict.
+- Added exact OCR-page corrections anchored to the source PDF and raw page hashes. Re-ingestion applies them before article parsing, then rebuilds passage offsets and records the correction file hash. No corrections have been asserted without checking the PDF.
+- The corpus still has `unreviewed_ocr` status and needs full human comparison with the PDF before release.
