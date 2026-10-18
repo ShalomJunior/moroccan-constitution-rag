@@ -60,6 +60,16 @@ def _load_corpus(manifest_hash: str):
     passages = read_jsonl(passage_path)
     return BM25(passages), manifest, {p["passage_id"]: p for p in passages}
 
+
+@lru_cache(maxsize=2)
+def _load_articles(manifest_hash: str):
+    _, manifest, _ = _load_corpus(manifest_hash)
+    article_path, _, _ = corpus_paths()
+    if digest(article_path.read_bytes()) != manifest["corpus_hash"]:
+        raise ValueError("Articles hash does not match the active manifest")
+    rows = read_jsonl(article_path)
+    return manifest, {row["article_number"]: row for row in rows}
+
 def corpus():
     _, _, manifest_path = corpus_paths()
     return _load_corpus(digest(manifest_path.read_bytes()))
@@ -126,6 +136,34 @@ def capabilities():
     except (OSError, ValueError):
         local_available = False
     return {"local_generation_available": local_available}
+
+
+@app.get("/articles")
+def articles():
+    try:
+        _, _, manifest_path = corpus_paths()
+        manifest, records = _load_articles(digest(manifest_path.read_bytes()))
+    except (FileNotFoundError, ValueError, KeyError) as exc:
+        raise HTTPException(503, "corpus_unavailable") from exc
+    return {"edition_id": manifest["edition_id"], "review_status": manifest.get("review_status"),
+            "articles": [{"article_number": number, "page_spans": record["page_spans"]}
+                         for number, record in sorted(records.items())]}
+
+
+@app.get("/articles/{number}")
+def article(number: int):
+    if not 0 <= number <= 180:
+        raise HTTPException(404, "Unknown article")
+    try:
+        _, _, manifest_path = corpus_paths()
+        manifest, records = _load_articles(digest(manifest_path.read_bytes()))
+    except (FileNotFoundError, ValueError, KeyError) as exc:
+        raise HTTPException(503, "corpus_unavailable") from exc
+    record = records.get(number)
+    if record is None:
+        raise HTTPException(404, "Unknown article")
+    return {**record, "source_url": manifest["source_url"], "edition_id": manifest["edition_id"],
+            "review_status": manifest.get("review_status")}
 
 @app.post("/ask", response_model=AskResponse)
 def ask(request: AskRequest):

@@ -34,6 +34,7 @@ Sans Docker : `uv run --frozen --extra api --extra dense --extra groq constituti
 - **Extraits** affiche directement les passages retrouvés. BM25, Dense, Hybride et Hybride avec reranking sont disponibles ; BM25 est le choix par défaut.
 - **Résumé Groq** utilise une clé `GROQ_API_KEY` placée dans le fichier local `.env` ou dans l’environnement du serveur. La question et les extraits sélectionnés sont envoyés au fournisseur. La clé ne va pas au navigateur.
 - **Résumé local** nécessite un [serveur Qwen séparé](docs/local-model.md). L’option est désactivée dans l’interface quand ce serveur est inaccessible ; le conteneur Docker ne le lance pas.
+- **Consulter un article** ouvre directement le préambule ou l'un des 180 articles, avec les pages du PDF source.
 
 Les réponses générées contiennent des citations liées à des passages et à des pages du PDF. Le contrôle automatique vérifie l’identité des citations, **pas** que chaque conclusion découle réellement du texte ni que la réponse est complète. Si les passages fournis ne suffisent pas, le système peut s’abstenir. Les essais de développement et les limites observées sont résumés dans le [bilan des réponses](reports/development-answer-review.md).
 

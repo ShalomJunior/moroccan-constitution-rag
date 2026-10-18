@@ -20,6 +20,7 @@
     .meta { font-size: .9rem; color: #53645d; }
     a { color: #135b4a; }
     .notice { background: #fff8dd; padding: .8rem 1rem; border-radius: .4rem; }
+    .browser { margin-top: 2rem; border-top: 1px solid #d6ded9; padding-top: 1rem; }
   </style>
 </head>
 <body>
@@ -29,11 +30,61 @@
   <form id="ask-form"><input id="question" name="question" maxlength="2000" required placeholder="Ex. Que disent les articles 20 et 21 ?"><select id="strategy" aria-label="Méthode de recherche"><option value="bm25">BM25</option><option value="dense">Dense</option><option value="hybrid">Hybride</option><option value="hybrid-rerank">Hybride + reranking</option></select><select id="generator" aria-label="Mode de réponse"><option value="extractive">Extraits</option><option id="local-option" value="local" disabled>Résumé local (serveur Qwen indisponible)</option><option value="groq">Résumé Groq (en ligne)</option></select><label><input id="expand-references" type="checkbox"> Suivre les renvois</label><label><input id="decompose" type="checkbox"> Décomposer la recherche</label><button id="submit">Chercher</button><button id="reset" type="button">Nouveau sujet</button></form>
   <p class="meta">Le mode Groq transmet votre question et les extraits retrouvés au fournisseur. Le résumé local nécessite un serveur Qwen séparé ; le conteneur Docker ne le lance pas. Le premier appel dense peut télécharger ses modèles.</p>
   <main id="results" aria-live="polite"></main>
+  <section class="browser" aria-labelledby="browse-title">
+    <h2 id="browse-title">Consulter un article</h2>
+    <label for="article-picker">Préambule ou numéro d’article</label>
+    <select id="article-picker" disabled><option>Chargement…</option></select>
+    <button id="open-article" type="button" disabled>Ouvrir</button>
+    <div id="article-view" aria-live="polite"></div>
+  </section>
   <script>
     const form = document.getElementById('ask-form');
     const results = document.getElementById('results');
     const localOption = document.getElementById('local-option');
     const corpusNotice = document.getElementById('corpus-notice');
+    const articlePicker = document.getElementById('article-picker');
+    const openArticle = document.getElementById('open-article');
+    const articleView = document.getElementById('article-view');
+    fetch('/articles').then(response => {
+      if (!response.ok) throw new Error('Index des articles indisponible.');
+      return response.json();
+    }).then(index => {
+      articlePicker.replaceChildren();
+      index.articles.forEach(item => {
+        const option = document.createElement('option');
+        option.value = item.article_number;
+        option.textContent = item.article_number ? 'Article ' + item.article_number : 'Préambule';
+        articlePicker.append(option);
+      });
+      articlePicker.disabled = false;
+      openArticle.disabled = false;
+    }).catch(error => { articleView.textContent = error.message; });
+    openArticle.addEventListener('click', async () => {
+      openArticle.disabled = true;
+      articleView.textContent = 'Chargement de l’article…';
+      try {
+        const response = await fetch('/articles/' + encodeURIComponent(articlePicker.value));
+        if (!response.ok) throw new Error('Article indisponible (' + response.status + ')');
+        const item = await response.json();
+        const card = document.createElement('article');
+        const heading = document.createElement('h3');
+        heading.textContent = item.article_number ? 'Article ' + item.article_number : 'Préambule';
+        const text = document.createElement('p');
+        text.textContent = item.canonical_text;
+        card.append(heading, text);
+        item.page_spans.forEach(page => {
+          const link = document.createElement('a');
+          link.textContent = 'PDF p. ' + page;
+          link.href = item.source_url + '#page=' + page;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.style.marginRight = '1rem';
+          card.append(link);
+        });
+        articleView.replaceChildren(card);
+      } catch (error) { articleView.textContent = error.message; }
+      finally { openArticle.disabled = false; }
+    });
     fetch('/version').then(response => response.json()).then(version => {
       corpusNotice.textContent = version.review_status === 'reviewed'
         ? 'Texte français relu par l’auteur à partir du PDF. La pertinence juridique des réponses et leur exhaustivité ne sont pas certifiées.'
