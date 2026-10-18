@@ -37,6 +37,8 @@ Sans Docker : `uv run --frozen --extra api --extra dense --extra groq constituti
 
 Les réponses générées contiennent des citations liées à des passages et à des pages du PDF. Le contrôle automatique vérifie l’identité des citations, **pas** que chaque conclusion découle réellement du texte ni que la réponse est complète. Si les passages fournis ne suffisent pas, le système peut s’abstenir. Les essais de développement et les limites observées sont résumés dans le [bilan des réponses](reports/development-answer-review.md).
 
+La section « Passages retrouvés » reste consultable même lorsqu'un résumé s'abstient. Elle distingue les résultats de recherche des passages effectivement inclus dans le contexte de réponse et permet d'ouvrir le texte complet et la page du PDF.
+
 ## Vérifier et reproduire
 
 ```bash
