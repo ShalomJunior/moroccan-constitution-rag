@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import uuid
+from urllib.request import urlopen
 from functools import lru_cache
 from urllib.parse import unquote
 from fastapi import FastAPI, HTTPException
@@ -10,9 +11,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated, Literal
 from . import __version__
-from .evidence import extractive_answer, pack
+from .evidence import extractive_answer, pack, pack_with_article_leads
 from .dialogue import resolve, next_articles
-from .retrieval import BM25, Dense, Hybrid
+from .retrieval import BM25, Dense, Hybrid, dense_index_dir
 from .store import ROOT, corpus_paths, read_jsonl, digest
 
 app = FastAPI(title="Constitution Evidence", version=__version__)
@@ -28,7 +29,7 @@ class DialogueTurn(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=5, ge=1, le=20)
-    generator: Literal["extractive", "local"] = "extractive"
+    generator: Literal["extractive", "local", "groq"] = "extractive"
     strategy: Literal["bm25", "dense", "hybrid", "hybrid-rerank"] = "bm25"
     expand_references: bool = False
     decompose: bool = False
@@ -66,7 +67,7 @@ def _engine(manifest_hash: str, strategy: str):
     if strategy == "bm25":
         return bm25
     rows = list(passages.values())
-    index_dir = ROOT / "data/processed/dense-index"
+    index_dir = dense_index_dir(ROOT / "data/processed/dense-index")
     if strategy == "dense":
         return Dense(rows, index_dir=index_dir)
     return Hybrid(rows, index_dir=index_dir, rerank=strategy == "hybrid-rerank")
@@ -97,6 +98,18 @@ def version():
     except (FileNotFoundError, ValueError):
         return {"app_version": __version__, "corpus_hash": None}
 
+@app.get("/capabilities")
+def capabilities():
+    """Expose whether the separate loopback model server is reachable."""
+    from .local_generation import LocalGenerator
+    try:
+        generator = LocalGenerator()
+        with urlopen(generator.base_url + "/health", timeout=1) as response:
+            local_available = response.status == 200
+    except (OSError, ValueError):
+        local_available = False
+    return {"local_generation_available": local_available}
+
 @app.post("/ask", response_model=AskResponse)
 def ask(request: AskRequest):
     started = time.perf_counter()
@@ -118,37 +131,64 @@ def ask(request: AskRequest):
     try:
         _, _, manifest_path = corpus_paths()
         manifest_hash = digest(manifest_path.read_bytes())
-        _, manifest, _ = _load_corpus(manifest_hash)
+        _, manifest, passage_map = _load_corpus(manifest_hash)
         engine = (_reference_engine(manifest_hash, request.strategy) if request.expand_references
                   else _engine(manifest_hash, request.strategy))
-    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+    except (FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:
+        if request.strategy == "bm25":
+            raise
+        logger.warning("retrieval_backend_unavailable: %s", type(exc).__name__)
+        raise HTTPException(503, "retrieval_backend_unavailable") from exc
     if request.decompose:
         from .decomposition import retrieve_multi
         from .generation import GenerationError
         try:
-            hits, decomposition = retrieve_multi(query, engine, request.top_k)
+            if request.generator == "groq":
+                from .groq_generation import GroqDecomposer
+                planner = GroqDecomposer()
+            else:
+                planner = None
+            hits, decomposition = retrieve_multi(query, engine, request.top_k, planner=planner)
         except GenerationError as exc:
-            raise HTTPException(429 if str(exc) == "local_provider_busy" else 503, str(exc)) from exc
+            raise HTTPException(429 if str(exc) in {"local_provider_busy", "groq_rate_limited"} else 503, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+        except Exception as exc:
+            if request.strategy == "bm25":
+                raise
+            logger.warning("retrieval_backend_unavailable: %s", type(exc).__name__)
+            raise HTTPException(503, "retrieval_backend_unavailable") from exc
     else:
-        hits, decomposition = engine.search(query, request.top_k), None
-    if request.generator == "local" and hits:
-        from .local_generation import LocalGenerator, GenerationError
-        context = pack(hits, 7000)
-        if not context:
-            raise HTTPException(422, "No retrieved passage fits the local model context budget")
         try:
-            answer = LocalGenerator().generate(query, context, manifest)
+            hits, decomposition = engine.search(query, request.top_k), None
+        except Exception as exc:
+            if request.strategy == "bm25":
+                raise
+            logger.warning("retrieval_backend_unavailable: %s", type(exc).__name__)
+            raise HTTPException(503, "retrieval_backend_unavailable") from exc
+    if request.generator in {"local", "groq"} and hits:
+        from .generation import GenerationError
+        context = pack_with_article_leads(hits, list(passage_map.values()), 7000)
+        if not context:
+            raise HTTPException(422, "No retrieved passage fits the model context budget")
+        try:
+            if request.generator == "local":
+                from .local_generation import LocalGenerator
+                answer = LocalGenerator().generate(query, context, manifest)
+            else:
+                from .groq_generation import GroqGenerator
+                answer = GroqGenerator().generate(query, context, manifest)
         except GenerationError as exc:
-            raise HTTPException(429 if str(exc) == "local_provider_busy" else 503, str(exc)) from exc
+            raise HTTPException(429 if str(exc) in {"local_provider_busy", "groq_rate_limited"} else 503, str(exc)) from exc
     else:
         context = pack(hits, 12000)
         answer = extractive_answer(hits, manifest)
     if decomposition:
         decomposition["context_passage_ids"] = [hit["passage_id"] for hit in context]
     answer["retrieval_strategy"] = request.strategy
+    answer["retrieved_passage_count"] = len(hits)
     answer["reference_expansion"] = request.expand_references
     answer["decomposition"] = decomposition
     answer["dialogue"] = {**dialogue, "next_article_numbers": next_articles(query, answer["sources"])}

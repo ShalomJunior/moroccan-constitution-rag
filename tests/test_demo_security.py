@@ -43,6 +43,8 @@ class DemoSecurityTests(unittest.TestCase):
         html = (Path(__file__).resolve().parents[1] / "app/index.html").read_text()
         self.assertIn("textContent = claim.text", html)
         self.assertIn("textContent = passage.canonical_text", html)
+        self.assertIn("Des passages ont été retrouvés, mais ils ne permettent pas de répondre", html)
+        self.assertNotIn("Aucun extrait fourni.", html)
         self.assertNotIn("innerHTML", html)
 
 

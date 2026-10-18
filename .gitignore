@@ -10,3 +10,9 @@ data/models/
 runs/*
 !runs/.gitkeep
 reports/ocr-audit.html
+/dist/
+kaggle-results*.zip
+data/annotations/development-answer-*
+data/annotations/external-review-observations.txt
+reports/kaggle-transformers-calibration.md
+reports/post-article27-calibration.md

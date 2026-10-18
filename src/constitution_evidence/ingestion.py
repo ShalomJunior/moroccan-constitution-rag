@@ -115,7 +115,18 @@ def make_passages(articles: list[dict]) -> list[dict]:
     for article in articles:
         body = article["canonical_text"]
         # Preserve exact offsets in the canonical article text.
-        spans = [m.span() for m in re.finditer(r"\S[\s\S]*?(?=\n\s*\n|\Z)", body)]
+        raw_spans = [m.span() for m in re.finditer(r"\S[\s\S]*?(?=\n\s*\n|\Z)", body)]
+        spans = []
+        for start, end in raw_spans:
+            if spans:
+                previous = body[spans[-1][0]:spans[-1][1]].rstrip()
+                next_text = body[start:end].lstrip()
+                # OCR sometimes inserts a blank line inside a sentence. Keep
+                # the source text and offsets intact while joining its context.
+                if next_text and (next_text[0].islower() or (previous and previous[-1] not in ".;:!?")):
+                    spans[-1] = (spans[-1][0], end)
+                    continue
+            spans.append((start, end))
         if not spans:
             spans = [(0, len(body))]
         for idx, (start, end) in enumerate(spans, 1):
@@ -184,7 +195,7 @@ def ingest(config_path: Path, root: Path = ROOT, tessdata: Path | None = None,
                 "article_count": len(articles) - int(articles[0]["article_number"] == 0),
                 "passage_count": len(passages), "corpus_hash": digest(article_path.read_bytes()),
                 "passages_hash": digest(passage_path.read_bytes()),
-                "extraction_method": "native text or French Tesseract OCR per page", "parser_version": "fr-ocr-v1",
+                "extraction_method": "native text or French Tesseract OCR per page", "parser_version": "fr-ocr-v2",
                 "ocr_dpi": dpi, "page_cache_key": cache_key,
                 "tesseract_version": subprocess.check_output(["tesseract", "--version"], text=True, stderr=subprocess.STDOUT).splitlines()[0],
                 "fra_traineddata_sha256": language_hash,

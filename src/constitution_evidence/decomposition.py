@@ -29,6 +29,7 @@ def explicit_plan(question: str) -> list[str] | None:
 
 class LocalDecomposer:
     """Ask the loopback Qwen server for at most two auxiliary searches."""
+    method = "local_qwen"
     def __init__(self, base_url: str | None = None, model: str | None = None, timeout: int = 60):
         settings = LocalGenerator(base_url=base_url, model=model, timeout=timeout)
         self.base_url = settings.base_url
@@ -80,8 +81,9 @@ def retrieve_multi(question: str, engine, k: int = 5, planner: LocalDecomposer |
     started = time.perf_counter()
     subquestions = explicit_plan(question)
     if subquestions is None:
-        subquestions, usage = (planner or LocalDecomposer()).plan(question)
-        method = "local_qwen"
+        active_planner = planner or LocalDecomposer()
+        subquestions, usage = active_planner.plan(question)
+        method = getattr(active_planner, "method", "local_qwen")
     else:
         usage = None
         method = "explicit_articles"
@@ -107,10 +109,10 @@ def retrieve_multi(question: str, engine, k: int = 5, planner: LocalDecomposer |
                 for rank, hit in enumerate(chosen[:k], 1)]
     trace = {"method": method, "plan_version": PLAN_VERSION, "subquestions": subquestions,
              "retrieval_calls": len(queries), "planning_usage": usage,
-             "planning_model_calls": int(method == "local_qwen"),
+             "planning_model_calls": int(method in {"local_qwen", "groq_model"}),
              "planning_seconds": round(planning_seconds, 4),
              "total_seconds": round(time.perf_counter() - started, 4),
-             "plan_review_status": "unverified_semantic" if method == "local_qwen" else "explicit_article_refs",
+             "plan_review_status": "unverified_semantic" if method in {"local_qwen", "groq_model"} else "explicit_article_refs",
              "candidate_passage_ids": [hit["passage_id"] for hits in lists for hit in hits],
              "selected_passage_ids": [hit["passage_id"] for hit in selected]}
     return selected, trace

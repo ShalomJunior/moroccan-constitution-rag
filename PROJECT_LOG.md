@@ -1,5 +1,25 @@
 # Project log
 
+## 2026-10-18 — Complete French OCR review observations integrated
+
+- The project owner supplied observations after comparing the preamble and Articles 1–180 against the French PDF and identified themselves as the reviewer. Preserved the observations with SHA-256 `651c8af7dc19143c1686bb23a3a6f90b8df2beb1870869ca6558e163adfb2fa1`.
+- Applied 308 new PDF- and raw-page-hash-anchored corrections, for 309 total including Article 27. Repaired words, punctuation, list markers, reordered lines, section-heading leakage, and the displaced Article 179 clause. Reflowed OCR blank-line breaks inside sentences without changing article text.
+- Rebuilt 181 French units and 483 passages. Article hash `c319ecb4cabe0eaafc3de18779cc210ec8fa83cffbaeb2259393073e9fb4901c`; passage hash `a4abf1b043a72c18d6dcc740f3f3ebbbc1a29aeebf0eedb8c1264d0793c5079c`. The owner's self-attested single-reviewer journal passed `certify-corpus`; active status is `reviewed`.
+- On 15 provisional dev questions, BM25S, dense, and hybrid each found the labeled article in 15/15 top-ten searches. Groq returned 14 structurally valid answers and one rejected quote mismatch. These results do not assess semantic support. The release gate is still blocked by the missing reviewed benchmark, validation selection, final system configs, and clean revision. See `reports/external-review-reconciliation.md`.
+- Prepared an ignored local development answer-review packet with the 15 saved Groq outcomes and source PDF links. Human judgments remain blank.
+
+## 2026-10-18 — Targeted OCR triage and corrected-corpus calibration
+
+- Added an automated OCR risk audit against the active manifest and validated inventory. It flags three possible fused-apostrophe lines for PDF inspection; these are candidates, not an accuracy estimate. Article 27 remains the sole recorded page correction.
+- Recomputed the 15 provisional dev questions after that correction. BM25S, dense, and hybrid article recall@10 were 15/15, 14/15, and 15/15 respectively; evidence-span metrics remain unavailable. BM25S stays the default.
+- Added resumable, hash-anchored Groq calibration with bounded citation-repair retry. The repaired ranked-hit run returned 15/15 structurally valid responses, including three abstentions caused by missing article openings in context.
+- Added budgeted opening paragraphs for retrieved articles to the generator context. A fresh Groq run changed those three abstentions to cited partial answers; 14/15 responses passed structural checks and one quote mismatch was rejected. These stochastic runs do not establish semantic or legal quality.
+
+## 2026-10-18 — Targeted Article 27 OCR correction
+
+- The project owner supplied the Article 27 transcription from PDF page 7. Recorded one exact raw-page replacement in `data/annotations/ocr-corrections.jsonl`, anchored to the PDF and raw OCR page hashes. Re-ingestion changed only Article 27, retained its two PDF paragraphs, and produced 632 passages. `validate-corpus` and all 49 offline tests pass.
+- The active corpus remains `unreviewed_ocr`; a targeted correction does not certify the remaining 180 French units. The earlier Kaggle calibration uses the previous corpus hash and is retained as a historical provisional run.
+
 ## 2026-10-18 — Report and offline reproduction
 
 - Added a development technical report with five saved-run retrieval failure cases, including cases where BM25S retrieves a provisional label that dense or hybrid misses. The report does not present unreviewed OCR or author-written labels as final legal evidence.
@@ -67,3 +87,12 @@
 - Added an optional search plan with the original question and at most two focused subquestions. Explicit multi-article questions plan locally; conceptual questions use the loopback Qwen server with JSON validation.
 - Search results are merged with deduplication and trace the questions, candidate IDs, selected IDs, actual context IDs, call counts, token usage when returned, and elapsed time. The original question is always searched, and no recursive agent loop is used.
 - A local explicit-article smoke query retrieved passages from articles 20 and 21 in three bounded searches. Conceptual Qwen planning has contract tests but has not been run against a live model; no quality improvement is claimed.
+
+## 2026-10-18 — Development answer review and citation repair
+
+- Archived the owner's completed 15-question Groq answer review and structured each judgment against the original run. Seven answers met all four human criteria; eight had at least one failure.
+- Added multiple exact citations per claim, nearby paragraph context, explicit completeness instructions, and normalization of spurious limitation labels. Tests cover a claim citing an article introduction and a list item, plus inclusion of a following limiting paragraph.
+- Ran a separate 15-question Groq development calibration with the revised code: 13 structured answers and two exact-citation rejections. Some prior failures improved, but answers to `cal-11`, `cal-12` and `cal-15` still omit relevant content. The new run has a blank human review packet; no post-change human success rate is claimed.
+- The project owner completed the v2 review: 8/15 answers met every criterion, compared with 7/15 on v1. Seven v2 failures remain, including semantic extrapolation, omissions, and quote mismatch. We archived the judgments and ended this manual calibration loop.
+- Added a locked CPU Docker Compose deployment for the browser, BM25, and optional Groq. The container mounts the processed corpus read-only and publishes only on host loopback. Built the image and verified `/health` and an extractive article 20 question against the active corpus; then stopped the test container. CI now checks Compose syntax.
+- Extended the Docker profile with the locked dense extra and a persistent writable model/index volume. Redirected FastEmbed and Hugging Face caches into that volume to preserve a read-only root filesystem. Verified real Docker requests for dense, hybrid, and hybrid plus reranking all return 200 after first-use model downloads. Added `/capabilities` so the browser disables local Qwen generation when no separate server is reachable.

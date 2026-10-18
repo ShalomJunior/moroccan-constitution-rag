@@ -3,10 +3,10 @@ import json
 import re
 from pathlib import Path
 from . import __version__
-from .evidence import extractive_answer, pack
+from .evidence import extractive_answer, pack, pack_with_article_leads
 from .evaluation import evaluate, report
 from .ingestion import ingest, validate_articles, validate_passages
-from .retrieval import BM25, Dense, Hybrid
+from .retrieval import BM25, Dense, Hybrid, dense_index_dir
 from .store import ROOT, corpus_paths, read_jsonl, digest
 
 def main(argv=None):
@@ -26,6 +26,8 @@ def _main(argv=None):
     sub.add_parser("validate-corpus")
     p = sub.add_parser("audit-corpus")
     p.add_argument("--output", type=Path, default=ROOT / "reports/ocr-audit.html")
+    p = sub.add_parser("ocr-risk-audit")
+    p.add_argument("--output", type=Path, default=ROOT / "reports/ocr-risk-audit.md")
     p = sub.add_parser("review-template")
     p.add_argument("--output", type=Path, default=ROOT / "data/annotations/corpus-review.jsonl")
     p = sub.add_parser("certify-corpus")
@@ -35,8 +37,8 @@ def _main(argv=None):
     p.add_argument("--top-k", type=int, default=5)
     p.add_argument("--strategy", choices=["bm25", "dense", "hybrid", "hybrid-rerank"], default="bm25")
     p.add_argument("--expand-references", action="store_true")
-    p.add_argument("--decompose", action="store_true", help="Up to three searches; conceptual questions need the local Qwen server")
-    p.add_argument("--generator", choices=["extractive", "local", "gemini"], default="extractive")
+    p.add_argument("--decompose", action="store_true", help="Up to three searches; conceptual questions use the selected model backend")
+    p.add_argument("--generator", choices=["extractive", "local", "groq", "gemini"], default="extractive")
     p.add_argument("--context", choices=["retrieved", "fulltext"], default="retrieved")
     p = sub.add_parser("evaluate")
     p.add_argument("--split", choices=["dev", "validation", "test"], default="dev")
@@ -68,6 +70,11 @@ def _main(argv=None):
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/calibration.jsonl")
     p.add_argument("--selection", type=Path, default=ROOT / "configs/latency_questions.json")
     p.add_argument("--run-id", required=True)
+    p = sub.add_parser("calibrate-groq")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/calibration.jsonl")
+    p.add_argument("--run-id", required=True)
+    p.add_argument("--max-new", type=int, default=15)
+    p.add_argument("--pause-seconds", type=float, default=18.0)
     p = sub.add_parser("release-readiness")
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
     p.add_argument("--selection", type=Path, default=ROOT / "runs/validation-selection.json")
@@ -123,6 +130,9 @@ def _main(argv=None):
         config = json.loads((ROOT / "configs/corpus.json").read_text())
         result = write_audit_html(records, metadata, args.output, ROOT / config["pdf_path"],
                                   ROOT / "data/processed/pages" / metadata["page_cache_key"])
+    elif args.command == "ocr-risk-audit":
+        from .ocr_quality import write_risk_audit
+        result = write_risk_audit(articles, passages, manifest, args.output)
     elif args.command == "review-template":
         from .review import create_review_template
         result = create_review_template(articles, manifest, args.output)
@@ -134,6 +144,8 @@ def _main(argv=None):
             raise ValueError("Question must be 1–2000 characters and top-k must be 1–20")
         if args.decompose and args.context == "fulltext":
             raise ValueError("Decomposition applies only to retrieved context")
+        if args.context == "fulltext" and args.generator == "groq":
+            raise ValueError("Groq accepts retrieved context only")
         records = read_jsonl(passages)
         metadata = json.loads(manifest.read_text())
         if digest(passages.read_bytes()) != metadata["passages_hash"]:
@@ -148,9 +160,9 @@ def _main(argv=None):
         if args.strategy == "bm25":
             engine = BM25(records)
         elif args.strategy == "dense":
-            engine = Dense(records, index_dir=ROOT / "data/processed/dense-index")
+            engine = Dense(records, index_dir=dense_index_dir(ROOT / "data/processed/dense-index"))
         else:
-            engine = Hybrid(records, index_dir=ROOT / "data/processed/dense-index", rerank=args.strategy == "hybrid-rerank")
+            engine = Hybrid(records, index_dir=dense_index_dir(ROOT / "data/processed/dense-index"), rerank=args.strategy == "hybrid-rerank")
         if args.expand_references:
             from .references import ReferenceExpander
             if digest(articles.read_bytes()) != metadata["corpus_hash"]:
@@ -159,7 +171,12 @@ def _main(argv=None):
                                        review_status=metadata["review_status"])
         if args.decompose:
             from .decomposition import retrieve_multi
-            hits, decomposition = retrieve_multi(args.question, engine, args.top_k)
+            if args.generator == "groq":
+                from .groq_generation import GroqDecomposer
+                planner = GroqDecomposer()
+            else:
+                planner = None
+            hits, decomposition = retrieve_multi(args.question, engine, args.top_k, planner=planner)
         else:
             hits, decomposition = engine.search(args.question, args.top_k), None
         if args.generator == "extractive":
@@ -169,8 +186,12 @@ def _main(argv=None):
             supplied = pack(hits, 12000)
         elif args.generator == "local":
             from .local_generation import LocalGenerator
-            supplied = pack(hits, 7000)
+            supplied = pack_with_article_leads(hits, records, 7000)
             result = LocalGenerator().generate(args.question, supplied, metadata)
+        elif args.generator == "groq":
+            from .groq_generation import GroqGenerator
+            supplied = pack_with_article_leads(hits, records, 7000)
+            result = GroqGenerator().generate(args.question, supplied, metadata) if supplied else extractive_answer([], metadata)
         else:
             from .generation import GeminiGenerator
             supplied = records if args.context == "fulltext" else hits
@@ -241,6 +262,12 @@ def _main(argv=None):
         output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
         result = {key: value for key, value in result.items() if key != "observations"}
         result["artifact"] = str(output)
+    elif args.command == "calibrate-groq":
+        from .groq_calibration import run_calibration
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.run_id):
+            raise ValueError("Run ID must be a simple name of at most 80 characters")
+        result = run_calibration(args.questions, passages, manifest, ROOT / "runs" / args.run_id,
+                                 max_new=args.max_new, pause_seconds=args.pause_seconds)
     elif args.command == "release-readiness":
         from .release import release_readiness
         result = release_readiness(args.questions, manifest, args.selection, args.systems)

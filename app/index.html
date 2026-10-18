@@ -26,11 +26,17 @@
   <h1>Constitution Evidence</h1>
   <p class="sub">Extraits de la Constitution marocaine de 2011, édition française.</p>
   <p class="notice">Texte issu d’une reconnaissance optique non encore relue. Les extraits sont des pistes documentaires, sans validation de leur pertinence juridique.</p>
-  <form id="ask-form"><input id="question" name="question" maxlength="2000" required placeholder="Ex. Que disent les articles 20 et 21 ?"><select id="strategy" aria-label="Méthode de recherche"><option value="bm25">BM25</option><option value="dense">Dense</option><option value="hybrid">Hybride</option><option value="hybrid-rerank">Hybride + reranking</option></select><select id="generator" aria-label="Mode de réponse"><option value="extractive">Extraits</option><option value="local">Résumé local expérimental</option></select><label><input id="expand-references" type="checkbox"> Suivre les renvois</label><label><input id="decompose" type="checkbox"> Décomposer la recherche</label><button id="submit">Chercher</button><button id="reset" type="button">Nouveau sujet</button></form>
+  <form id="ask-form"><input id="question" name="question" maxlength="2000" required placeholder="Ex. Que disent les articles 20 et 21 ?"><select id="strategy" aria-label="Méthode de recherche"><option value="bm25">BM25</option><option value="dense">Dense</option><option value="hybrid">Hybride</option><option value="hybrid-rerank">Hybride + reranking</option></select><select id="generator" aria-label="Mode de réponse"><option value="extractive">Extraits</option><option id="local-option" value="local" disabled>Résumé local (serveur Qwen indisponible)</option><option value="groq">Résumé Groq (en ligne)</option></select><label><input id="expand-references" type="checkbox"> Suivre les renvois</label><label><input id="decompose" type="checkbox"> Décomposer la recherche</label><button id="submit">Chercher</button><button id="reset" type="button">Nouveau sujet</button></form>
+  <p class="meta">Le mode Groq transmet votre question et les extraits retrouvés au fournisseur. Le résumé local nécessite un serveur Qwen séparé ; le conteneur Docker ne le lance pas. Le premier appel dense peut télécharger ses modèles.</p>
   <main id="results" aria-live="polite"></main>
   <script>
     const form = document.getElementById('ask-form');
     const results = document.getElementById('results');
+    const localOption = document.getElementById('local-option');
+    fetch('/capabilities').then(response => response.json()).then(capabilities => {
+      localOption.disabled = !capabilities.local_generation_available;
+      localOption.textContent = capabilities.local_generation_available ? 'Résumé local (Qwen)' : 'Résumé local (serveur Qwen indisponible)';
+    }).catch(() => {});
     let history = [];
     document.getElementById('reset').addEventListener('click', () => { history = []; results.replaceChildren(); document.getElementById('question').value = ''; });
     form.addEventListener('submit', async event => {
@@ -42,11 +48,12 @@
         const response = await fetch('/ask', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question: document.getElementById('question').value, history, generator: document.getElementById('generator').value, strategy: document.getElementById('strategy').value, expand_references: document.getElementById('expand-references').checked, decompose: document.getElementById('decompose').checked})});
         if (!response.ok) {
           const error = await response.json().catch(() => ({}));
-          throw new Error(error.detail || 'Recherche indisponible (' + response.status + ')');
+          const detail = error.detail || 'Recherche indisponible (' + response.status + ')';
+          throw new Error(String(detail).startsWith('local_provider_unavailable') ? 'Serveur Qwen local indisponible. Démarrez-le puis actualisez la page, ou choisissez Groq.' : detail);
         }
         const answer = await response.json();
         if (answer.dialogue && !answer.dialogue.needs_clarification) history = [...history, {article_numbers: answer.dialogue.next_article_numbers}].slice(-3);
-        const note = document.createElement('p'); note.className = 'meta'; note.textContent = (answer.retrieval_strategy || '') + ' · ' + (answer.limitations || '');
+        const note = document.createElement('p'); note.className = 'meta'; note.textContent = [answer.retrieval_strategy, answer.limitations].filter(Boolean).join(' · ');
         results.append(note);
         if (answer.dialogue && answer.dialogue.used_article) { const resolved = document.createElement('p'); resolved.className = 'meta'; resolved.textContent = 'Question reformulée : ' + answer.dialogue.resolved_question; results.append(resolved); }
         if (answer.decomposition) {
@@ -54,7 +61,15 @@
           plan.textContent = 'Recherches : question originale + ' + answer.decomposition.subquestions.join(' ; ') + ' (' + answer.decomposition.retrieval_calls + ' appels)';
           results.append(plan);
         }
-        if (!answer.claims.length) { const empty = document.createElement('p'); empty.textContent = answer.clarification_question || 'Aucun extrait fourni.'; results.append(empty); }
+        if (!answer.claims.length) {
+          const empty = document.createElement('p');
+          if (answer.status === 'needs_clarification') empty.textContent = answer.clarification_question || 'Précisez votre question.';
+          else if (answer.status === 'out_of_scope') empty.textContent = 'Cette question sort du périmètre de la Constitution marocaine de 2011.';
+          else if (answer.status === 'insufficient_evidence' && answer.retrieved_passage_count === 0) empty.textContent = 'Aucun passage pertinent n’a été retrouvé dans le corpus.';
+          else if (answer.status === 'insufficient_evidence') empty.textContent = 'Des passages ont été retrouvés, mais ils ne permettent pas de répondre avec une preuve suffisante.';
+          else empty.textContent = 'Aucune réponse étayée n’a été produite.';
+          results.append(empty);
+        }
         answer.claims.forEach(claim => {
           const card = document.createElement('article');
           const excerpt = document.createElement('p'); excerpt.textContent = claim.text;

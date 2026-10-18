@@ -9,6 +9,10 @@ dependencies = ["bm25s>=0.2,<0.3"]
 api = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
 dense = ["fastembed>=0.7,<1", "faiss-cpu>=1.8,<2"]
 generation = ["google-genai>=1,<2", "pydantic>=2,<3"]
+groq = [
+    "groq>=1.7.0",
+    "python-dotenv>=1.2.4",
+]
 
 [project.scripts]
 constitution-evidence = "constitution_evidence.cli:main"
