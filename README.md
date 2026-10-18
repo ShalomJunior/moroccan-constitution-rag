@@ -2,6 +2,8 @@
 
 A French documentary QA project for Morocco's 2011 Constitution. It is under construction; the current answer path returns source excerpts, not verified legal conclusions. The detailed [roadmap](constitution-rag/roadmap.md), [implementation specification](constitution-rag/implementation-spec.md), and [evaluation protocol](constitution-rag/evaluation-protocol.md) remain the project plan. Arabic work is excluded by request.
 
+The [technical development report](reports/technical-report.md), [data card](docs/data-card.md), and [reproduction guide](docs/reproduction.md) describe the present evidence and release blockers. There is no `v1.0` release yet. The [J41–J50 extension gate](docs/v2-decision-gate.md) defers v2 work until measured v1 errors and a new held-out test justify one research direction.
+
 ## Quick start
 
 Requires Python 3.11+, Poppler (`pdfinfo`, `pdftotext`, `pdftoppm`), and Tesseract. French Tesseract language data (`fra.traineddata`) is required for the scanned PDF.

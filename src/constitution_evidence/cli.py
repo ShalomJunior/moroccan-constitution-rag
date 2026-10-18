@@ -84,6 +84,10 @@ def _main(argv=None):
     p.add_argument("--judgments", type=Path, required=True)
     p.add_argument("--replications", type=int, default=2000)
     p.add_argument("--seed", type=int, default=20261018)
+    p = sub.add_parser("reproduce-retrieval")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/robustness_calibration.jsonl")
+    p.add_argument("run_ids", nargs="+")
+    sub.add_parser("publication-audit")
     sub.add_parser("serve")
     args = parser.parse_args(argv)
     articles, passages, manifest = corpus_paths()
@@ -235,6 +239,14 @@ def _main(argv=None):
     elif args.command == "score-judgments":
         from .judgments import score_judgments
         result = score_judgments(args.mapping, args.judgments, args.replications, args.seed)
+    elif args.command == "reproduce-retrieval":
+        from .reproduction import reproduce_retrieval
+        if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", item) for item in args.run_ids):
+            raise ValueError("Invalid run ID")
+        result = reproduce_retrieval(args.questions, passages, [ROOT / "runs" / item for item in args.run_ids])
+    elif args.command == "publication-audit":
+        from .reproduction import publication_audit
+        result = publication_audit()
     else:
         try:
             import uvicorn
