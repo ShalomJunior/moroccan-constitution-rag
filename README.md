@@ -2,7 +2,7 @@
 
 Recherche documentaire dans la version française de la Constitution marocaine de 2011. L’application retrouve des passages, affiche leur page dans le [PDF institutionnel](https://maroc.ma/sites/default/files/2024-10/constitution_du_1er_juillet_2011.pdf) et peut produire une réponse avec des citations vérifiées. Elle ne couvre pas la version arabe.
 
-La version `0.1.0` est une **version applicative**. Elle permet de consulter le corpus et de tester les différents modes de recherche. Elle ne constitue ni une édition juridique officielle ni un système dont la fiabilité a été établie par le benchmark final prévu dans la [feuille de route](constitution-rag/roadmap.md).
+La version `0.1.0` est une **version applicative**. Elle permet de consulter le corpus et de tester les différents modes de recherche. Elle ne constitue ni une édition juridique officielle ni un système dont la fiabilité a été établie par une évaluation finale.
 
 ## Démarrer
 
