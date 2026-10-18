@@ -26,6 +26,10 @@ def _main(argv=None):
     sub.add_parser("validate-corpus")
     p = sub.add_parser("audit-corpus")
     p.add_argument("--output", type=Path, default=ROOT / "reports/ocr-audit.html")
+    p = sub.add_parser("review-template")
+    p.add_argument("--output", type=Path, default=ROOT / "data/annotations/corpus-review.jsonl")
+    p = sub.add_parser("certify-corpus")
+    p.add_argument("--review", type=Path, default=ROOT / "data/annotations/corpus-review.jsonl")
     p = sub.add_parser("ask")
     p.add_argument("question")
     p.add_argument("--top-k", type=int, default=5)
@@ -119,6 +123,12 @@ def _main(argv=None):
         config = json.loads((ROOT / "configs/corpus.json").read_text())
         result = write_audit_html(records, metadata, args.output, ROOT / config["pdf_path"],
                                   ROOT / "data/processed/pages" / metadata["page_cache_key"])
+    elif args.command == "review-template":
+        from .review import create_review_template
+        result = create_review_template(articles, manifest, args.output)
+    elif args.command == "certify-corpus":
+        from .review import certify_corpus
+        result = certify_corpus(articles, manifest, args.review)
     elif args.command == "ask":
         if not args.question.strip() or len(args.question) > 2000 or not 1 <= args.top_k <= 20:
             raise ValueError("Question must be 1–2000 characters and top-k must be 1–20")

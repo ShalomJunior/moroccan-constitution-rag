@@ -26,7 +26,7 @@ For a locked optional local API installation, use `uv sync --frozen --extra api 
 
 The downloaded PDF, OCR model, generated text, and runs are ignored by Git. The PDF source, edition, hash, and extraction status are recorded in `data/processed/manifest.json` after ingestion. This project does not claim evaluated factual reliability until the OCR and benchmark have been reviewed. See [scope](docs/project-scope.md), [limitations](docs/limitations.md), and [Gitflow](docs/gitflow.md).
 
-To inspect every French article alongside its PDF pages, run `constitution-evidence audit-corpus` and open `reports/ocr-audit.html`. Verified page corrections can be recorded with hashes and replayed on re-ingestion; see the [OCR review guide](docs/ocr-review.md). The audit and correction workflow do not automatically certify the full corpus.
+To inspect every French article alongside its PDF pages, run `constitution-evidence audit-corpus` and open `reports/ocr-audit.html`. Verified page corrections can be recorded with hashes and replayed on re-ingestion. After the full PDF comparison, use `review-template` and `certify-corpus` to record a hash-anchored signoff; see the [OCR review guide](docs/ocr-review.md). Generating the audit or template does not certify the corpus.
 
 The provisional 15-question calibration can be rerun with `constitution-evidence evaluate --questions data/annotations/calibration.jsonl --split dev --run-id calibration-bm25 --strategy bm25`. A run saves each question and resumes if its inputs and configuration match. Article recall and MRR are available for these questions; evidence-span metrics need the reviewed annotations described in the [annotation guide](docs/annotation-guide.md).
 

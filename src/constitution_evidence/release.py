@@ -26,6 +26,10 @@ def release_readiness(questions_path: Path, corpus_manifest_path: Path,
     questions = read_jsonl(questions_path) if questions_path.exists() else []
     if corpus.get("review_status") != "reviewed":
         reasons.append("Corpus is not reviewed")
+    review_path = repo_root / "data/annotations/corpus-review.jsonl"
+    if corpus.get("review_status") == "reviewed" and (
+            not review_path.exists() or corpus.get("review_file_sha256") != digest(review_path.read_bytes())):
+        reasons.append("Corpus review journal is missing or changed")
     counts = {}
     seen = {}
     for split in EXPECTED_FAMILIES:
@@ -85,6 +89,7 @@ def release_readiness(questions_path: Path, corpus_manifest_path: Path,
     return {"status": "ready" if not reasons else "blocked", "reasons": list(dict.fromkeys(reasons)),
             "commit": commit, "dirty": dirty,
             "corpus_hash": corpus.get("corpus_hash"),
+            "corpus_manifest_sha256": digest(corpus_manifest_path.read_bytes()),
             "questions_sha256": digest(questions_path.read_bytes()) if questions_path.exists() else None,
             "selection_sha256": digest(selection_path.read_bytes()) if selection_path.exists() else None,
             "selection_path": _repo_relative(selection_path, repo_root),
@@ -104,8 +109,12 @@ def assert_reserved_test_ready(release_manifest_path: Path, questions_path: Path
     if frozen.get("questions_sha256") != digest(questions_path.read_bytes()):
         raise ValueError("Reserved questions changed after release freeze")
     corpus = json.loads(corpus_manifest_path.read_text())
-    if corpus.get("review_status") != "reviewed" or frozen.get("corpus_hash") != corpus.get("corpus_hash"):
+    if (corpus.get("review_status") != "reviewed" or frozen.get("corpus_hash") != corpus.get("corpus_hash")
+            or frozen.get("corpus_manifest_sha256") != digest(corpus_manifest_path.read_bytes())):
         raise ValueError("Reserved corpus changed after release freeze")
+    review_path = ROOT / "data/annotations/corpus-review.jsonl"
+    if not review_path.exists() or corpus.get("review_file_sha256") != digest(review_path.read_bytes()):
+        raise ValueError("Reserved corpus review journal changed after release freeze")
     for name in ("selection", "systems", "analysis_plan"):
         relative = Path(frozen.get(name + "_path", ""))
         if relative.is_absolute() or ".." in relative.parts:
