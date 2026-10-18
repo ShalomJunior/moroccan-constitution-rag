@@ -1,6 +1,8 @@
 # French retrieval robustness (provisional development run)
 
-The 15 author-written calibration families were expanded to one direct wording, one paraphrase, and one single-character deletion per family. All 45 questions remain in the `dev` split and reuse the same provisional article labels. The corpus is still unreviewed OCR. These figures describe retrieval against those labels only; they do not measure legal correctness or citation quality.
+**Historical snapshot:** These results were measured before the project-owner PDF review and correction of the French corpus. They are not current-corpus metrics.
+
+The 15 author-written calibration families were expanded to one direct wording, one paraphrase, and one single-character deletion per family. All 45 questions remain in the `dev` split and reuse the same provisional article labels. The corpus used for this run was unreviewed OCR. These figures describe retrieval against those labels only; they do not measure legal correctness or citation quality.
 
 | Method | Direct Recall@10 | Paraphrase Recall@10 | Typo Recall@10 | Overall Recall@10 |
 | --- | ---: | ---: | ---: | ---: |

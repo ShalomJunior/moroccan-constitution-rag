@@ -1,55 +1,50 @@
 # Constitution Evidence
 
-A French documentary QA project for Morocco's 2011 Constitution. It is under construction; the current answer path returns source excerpts, not verified legal conclusions. The detailed [roadmap](constitution-rag/roadmap.md), [implementation specification](constitution-rag/implementation-spec.md), and [evaluation protocol](constitution-rag/evaluation-protocol.md) remain the project plan. Arabic work is excluded by request.
+Recherche documentaire dans la version française de la Constitution marocaine de 2011. L’application retrouve des passages, affiche leur page dans le [PDF institutionnel](https://maroc.ma/sites/default/files/2024-10/constitution_du_1er_juillet_2011.pdf) et peut produire une réponse avec des citations vérifiées. Elle ne couvre pas la version arabe.
 
-The [technical development report](reports/technical-report.md), [data card](docs/data-card.md), and [reproduction guide](docs/reproduction.md) describe the present evidence and release blockers. There is no `v1.0` release yet. The [J41–J50 extension gate](docs/v2-decision-gate.md) defers v2 work until measured v1 errors and a new held-out test justify one research direction.
+La version `0.1.0` est une **version applicative**. Elle permet de consulter le corpus et de tester les différents modes de recherche. Elle ne constitue ni une édition juridique officielle ni un système dont la fiabilité a été établie par le benchmark final prévu dans la [feuille de route](constitution-rag/roadmap.md).
 
-## Quick start
+## Démarrer
 
-Requires Python 3.11+, Poppler (`pdfinfo`, `pdftotext`, `pdftoppm`), and Tesseract. French Tesseract language data (`fra.traineddata`) is required for the scanned PDF.
+Il faut Python 3.11+, [uv](https://docs.astral.sh/uv/), Poppler, Tesseract et ses données françaises. Le PDF et les fichiers OCR restent sur votre machine ; ils ne sont pas distribués dans le dépôt.
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -e .
+uv sync --frozen --extra api --extra dense --extra groq
 mkdir -p data/raw data/ocr
 curl -L --fail -o data/raw/constitution_2011_fr_marocma.pdf https://maroc.ma/sites/default/files/2024-10/constitution_du_1er_juillet_2011.pdf
 curl -L --fail -o data/ocr/fra.traineddata https://github.com/tesseract-ocr/tessdata_fast/raw/refs/heads/main/fra.traineddata
-# The tested file SHA-256 is ced037562e8c80c13122dece28dd477d399af80911a28791a66a63ac1e3445ca.
-constitution-evidence ingest
-constitution-evidence validate-corpus
-constitution-evidence ask 'Que dit l’article 20 sur le droit à la vie ?'
-python -m unittest discover -s tests -v
+uv run --frozen constitution-evidence ingest
+uv run --frozen constitution-evidence validate-corpus
 ```
 
-For a locked optional local API installation, use `uv sync --frozen --extra api --no-dev` then `uv run --frozen --extra api constitution-evidence serve`. Add `--extra dense` to both commands to install dense, hybrid, and reranked retrieval. Endpoints: `POST /ask`, `GET /sources/{passage_id}`, `GET /health`, `GET /version`.
+Les empreintes attendues du PDF et des données Tesseract figurent dans le [guide de reproduction](docs/reproduction.md). L’ingestion applique le [journal de corrections OCR](data/annotations/ocr-corrections.jsonl). Si les empreintes des 181 unités reconstruites correspondent à la [revue du corpus](data/annotations/corpus-review.jsonl), `uv run --frozen constitution-evidence certify-corpus` peut rétablir son statut relu. Un changement d’extraction ou de version OCR exige une nouvelle vérification des différences.
 
-The downloaded PDF, OCR model, generated text, and runs are ignored by Git. The PDF source, edition, hash, and extraction status are recorded in `data/processed/manifest.json` after ingestion. This project does not claim evaluated factual reliability until the OCR and benchmark have been reviewed. See [scope](docs/project-scope.md), [limitations](docs/limitations.md), and [Gitflow](docs/gitflow.md).
+Pour lancer l’interface dans Docker :
 
-To inspect every French article alongside its PDF pages, run `constitution-evidence audit-corpus` and open `reports/ocr-audit.html`. Verified page corrections can be recorded with hashes and replayed on re-ingestion. After the full PDF comparison, use `review-template` and `certify-corpus` to record a hash-anchored signoff; see the [OCR review guide](docs/ocr-review.md). Generating the audit or template does not certify the corpus.
+```bash
+docker compose up -d --build
+```
 
-The provisional 15-question calibration can be rerun with `constitution-evidence evaluate --questions data/annotations/calibration.jsonl --split dev --run-id calibration-bm25 --strategy bm25`. A run saves each question and resumes if its inputs and configuration match. Article recall and MRR are available for these questions; evidence-span metrics need the reviewed annotations described in the [annotation guide](docs/annotation-guide.md).
+Ouvrez [http://127.0.0.1:8000/](http://127.0.0.1:8000/). Le conteneur monte le corpus en lecture seule et garde les modèles de recherche dans un volume Docker. Le premier appel Dense ou Hybride peut télécharger un modèle. Le [guide Docker](docs/container-run.md) détaille les volumes et l’arrêt du service.
 
-## Retrieval options
+Sans Docker : `uv run --frozen --extra api --extra dense --extra groq constitution-evidence serve`.
 
-BM25 uses [BM25S](https://github.com/xhluca/bm25s). Install `pip install -e '.[dense]'` to enable CPU dense search with [FastEmbed](https://qdrant.github.io/fastembed/) and [FAISS](https://github.com/facebookresearch/faiss). `--strategy dense`, `hybrid`, and `hybrid-rerank` are available on `ask` and `evaluate`; embedding models download on first use. The dense index is reused only when its model ID and corpus hash match. These candidates have not been selected on a validated benchmark.
+## Utiliser l’application
 
-The local interface is at `http://127.0.0.1:8000/` after `constitution-evidence serve`. It displays verbatim OCR excerpts, article IDs, and links to the physical PDF page.
-The interface lets you select a retrieval strategy and open the exact passage behind each citation. Explicit questions naming several articles distribute the first results across those articles; the preamble can also be looked up directly.
-The API accepts a strategy in `POST /ask`, for example `{"question":"Que disent les articles 20 et 21 ?","top_k":5,"strategy":"hybrid","generator":"extractive"}`. Responses include the strategy used. A dense strategy requires the `dense` extra and downloads its model on first use.
+- **Extraits** affiche directement les passages retrouvés. BM25, Dense, Hybride et Hybride avec reranking sont disponibles ; BM25 est le choix par défaut.
+- **Résumé Groq** utilise une clé `GROQ_API_KEY` placée dans le fichier local `.env` ou dans l’environnement du serveur. La question et les extraits sélectionnés sont envoyés au fournisseur. La clé ne va pas au navigateur.
+- **Résumé local** nécessite un [serveur Qwen séparé](docs/local-model.md). L’option est désactivée dans l’interface quand ce serveur est inaccessible ; le conteneur Docker ne le lance pas.
 
-Reference expansion is optional: select “Suivre les renvois” in the interface, pass `--expand-references` to `constitution-evidence ask`, or set `"expand_references":true` in `POST /ask`. It follows at most one explicit article reference found in a retrieved passage, and the added source records the originating article, passage, exact reference quote, and offsets. It never follows a second hop. This is an experimental evidence-gathering feature; its benefit has not been measured on reviewed questions.
+Les réponses générées contiennent des citations liées à des passages et à des pages du PDF. Le contrôle automatique vérifie l’identité des citations, **pas** que chaque conclusion découle réellement du texte ni que la réponse est complète. Si les passages fournis ne suffisent pas, le système peut s’abstenir. Les essais de développement et les limites observées sont résumés dans le [bilan des réponses](reports/development-answer-review.md).
 
-For questions needing several pieces of evidence, use `--decompose` or `"decompose":true` in `POST /ask`. This runs the original query plus at most two focused searches and returns a trace of the plan and supplied passages. Explicitly named articles work without a model; conceptual decomposition uses the local Qwen server even when the answer mode is extractive. See [multi-evidence search](docs/multi-evidence.md).
+## Vérifier et reproduire
 
-The API and browser also support short French follow-ups such as “Que prévoit cet article ?” using a bounded, stateless article-number history. Use **Nouveau sujet** to clear browser history. See [dialogue and operations](docs/dialogue-and-operations.md). The [French robustness report](reports/french-robustness.md) compares provisional direct, paraphrased, and typo questions; its results are development diagnostics over unreviewed OCR.
+```bash
+uv run --frozen --extra api --extra dense --extra groq python -m unittest discover -s tests
+uv run --frozen constitution-evidence publication-audit
+docker compose config --quiet
+```
 
-The next experiment commands are `compare-runs`, `select-validation`, and `oracle-run`; their data gates and limits are in [experiments](docs/experiments.md). The [demo threat model](docs/demo-threat-model.md) and [installation status](reports/installation-and-usability.md) describe the current offline checks.
+Le [guide de reproduction](docs/reproduction.md) décrit la source, les commandes et les contrôles. Le [data card](docs/data-card.md) précise la provenance du corpus. Les résultats des petites séries de développement ne remplacent pas une évaluation indépendante : le benchmark de 45 questions de développement, 45 de validation et 90 de test réservé n’est pas terminé. Aucune mesure générale de fiabilité juridique n’est revendiquée pour `0.1.0`.
 
-Latency measurement, release readiness, reserved-test preflight, blind review packets, and paired statistics are described in [release and judgments](docs/release-and-judgments.md). The release gate currently blocks final testing because the French OCR and benchmark labels are not reviewed.
-
-## Local open model
-
-The optional [local Qwen setup](docs/local-model.md) uses llama.cpp on `127.0.0.1:8080` and costs no API calls. Run `constitution-evidence ask 'Votre question' --generator local` or select “Résumé local expérimental” in the interface. Exact citations are checked server side; semantic correctness and OCR quality are still unverified. A Gemini adapter remains optional for future comparisons, but no key is needed for the local or extractive modes.
-
-For GPU experiments, use [the Transformers Kaggle notebook](notebooks/kaggle_transformers.ipynb). It loads Qwen3 4B through Hugging Face Transformers and bitsandbytes, checks the native 32,768-token budget, and saves a full-text smoke result plus provisional BM25 calibration responses. It uses the already attached private source dataset, whether Kaggle mounts it as a ZIP or extracts it. The [llama.cpp Kaggle notebook](notebooks/kaggle_gpu.ipynb) remains available when testing the local server backend specifically. Neither notebook performs the missing human review. To create a fresh private source upload, run `git archive --format=zip --output=dist/constitution-evidence-source.zip HEAD` and attach that ZIP as a private Kaggle dataset.
+Le code est sous [licence MIT](LICENSE). Les droits du PDF source et des textes qui en dérivent doivent être examinés séparément avant toute redistribution.

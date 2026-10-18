@@ -46,7 +46,7 @@ def publication_audit(root: Path = ROOT) -> dict:
     tracked = [Path(item) for item in tracked if item]
     findings = []
     forbidden = (".env", "data/raw/", "data/ocr/", "data/processed/", "data/models/", "runs/")
-    secret = re.compile(rb"(?:AIza[0-9A-Za-z_-]{30,}|sk-[0-9A-Za-z_-]{20,}|-----BEGIN (?:RSA |EC )?PRIVATE KEY-----)")
+    secret = re.compile(rb"(?:AIza[0-9A-Za-z_-]{30,}|(?:gsk_|ghp_|github_pat_)[0-9A-Za-z_-]{20,}|sk-[0-9A-Za-z_-]{20,}|-----BEGIN (?:RSA |EC )?PRIVATE KEY-----)")
     for relative in tracked:
         name = relative.as_posix()
         if name == ".env" or any(name.startswith(prefix) for prefix in forbidden[1:]):

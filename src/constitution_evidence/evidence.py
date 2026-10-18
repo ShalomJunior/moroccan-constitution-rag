@@ -14,6 +14,39 @@ def pack(hits: list[dict], max_chars: int = 12000) -> list[dict]:
             used += size
     return chosen
 
+
+def pack_with_article_leads(hits: list[dict], passages: list[dict], max_chars: int = 7000) -> list[dict]:
+    """Preserve ranked hits and include nearby paragraphs needed for legal context."""
+    chosen = pack(hits, max_chars)
+    by_position = {(p["article_number"], p["paragraph_index"]): p for p in passages}
+    seen = {p["passage_id"] for p in chosen}
+    extra, used = {}, sum(len(p["canonical_text"]) for p in chosen)
+    for hit in chosen:
+        article, paragraph = hit["article_number"], hit["paragraph_index"]
+        # The opening identifies the subject of a list; the following paragraph
+        # often holds a qualification or exception omitted by a top hit.
+        positions = [1, paragraph + 1]
+        if paragraph == 1:
+            positions = [2]
+        for position in positions:
+            neighbor = by_position.get((article, position))
+            if neighbor and neighbor["passage_id"] not in seen and used + len(neighbor["canonical_text"]) <= max_chars:
+                extra[neighbor["passage_id"]] = {**neighbor, "retriever": "article_context"}
+                seen.add(neighbor["passage_id"])
+                used += len(neighbor["canonical_text"])
+    result, inserted = [], set()
+    for hit in chosen:
+        lead = by_position.get((hit["article_number"], 1))
+        if lead and lead["passage_id"] in extra and lead["passage_id"] not in inserted:
+            result.append(extra[lead["passage_id"]])
+            inserted.add(lead["passage_id"])
+        result.append(hit)
+        next_passage = by_position.get((hit["article_number"], hit["paragraph_index"] + 1))
+        if next_passage and next_passage["passage_id"] in extra and next_passage["passage_id"] not in inserted:
+            result.append(extra[next_passage["passage_id"]])
+            inserted.add(next_passage["passage_id"])
+    return result
+
 def validate_answer(answer: dict, supplied: list[dict]) -> dict:
     if answer.get("status") not in STATUSES:
         raise ValueError("Unknown answer status")

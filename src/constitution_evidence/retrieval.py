@@ -1,12 +1,20 @@
 """Adapters for maintained lexical and dense retrieval libraries."""
 import re
+import os
 import unicodedata
 from collections import Counter
+from pathlib import Path
 import bm25s
 
 ARTICLE_QUERY = re.compile(r"\barticles?\s+(\d{1,3})\b", re.IGNORECASE)
 ARTICLE_LIST = re.compile(r"\barticles\s+(\d{1,3}(?:(?:\s*(?:,|;|et|ou)\s*)\d{1,3})*)", re.IGNORECASE)
 PREAMBLE_QUERY = re.compile(r"\bpr[ée]ambule\b", re.IGNORECASE)
+
+def dense_index_dir(default: Path) -> Path:
+    return Path(os.getenv("CONSTITUTION_DENSE_INDEX") or default)
+
+def model_cache_dir() -> str | None:
+    return os.getenv("CONSTITUTION_MODEL_CACHE") or None
 
 def explicit_article_numbers(question: str) -> list[int]:
     """Return named article numbers, including simple French article lists."""
@@ -89,7 +97,7 @@ class Dense:
         self.np = np
         self.passages = passages
         self.model_name = model_name
-        self.model = TextEmbedding(model_name=model_name)
+        self.model = TextEmbedding(model_name=model_name, cache_dir=model_cache_dir())
         self.corpus_hash = digest("\n".join(p["passage_id"] + p["text_hash"] for p in passages))
         index_dir = Path(index_dir) if index_dir else None
         meta_path = index_dir / "metadata.json" if index_dir else None
@@ -137,7 +145,7 @@ class Reranker:
             from fastembed.rerank.cross_encoder import TextCrossEncoder
         except ImportError as exc:
             raise RuntimeError("Install the dense extra: pip install -e '.[dense]'") from exc
-        self.model = TextCrossEncoder(model_name=model_name)
+        self.model = TextCrossEncoder(model_name=model_name, cache_dir=model_cache_dir())
         self.model_name = model_name
 
     def rerank(self, question: str, hits: list[dict], k: int = 5) -> list[dict]:

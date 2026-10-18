@@ -1,9 +1,13 @@
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from constitution_evidence.api import AskRequest, ask
+from constitution_evidence.api import AskRequest, ask, capabilities
 
 class ApiContracts(unittest.TestCase):
+    def test_local_capability_is_false_when_server_is_absent(self):
+        with patch("constitution_evidence.api.urlopen", side_effect=OSError("connection refused")):
+            self.assertFalse(capabilities()["local_generation_available"])
+
     def test_retrieval_strategy_is_passed_to_engine_and_returned(self):
         fake = {"passage_id": "p-1", "article_number": 1, "canonical_text": "Une preuve.",
                 "text_hash": "hash", "page_spans": [3], "score": 1.0}
@@ -19,6 +23,7 @@ class ApiContracts(unittest.TestCase):
         self.assertEqual(engine.called, ("article 1", 3))
         self.assertEqual(select.call_args.args[1], "hybrid")
         self.assertEqual(result["retrieval_strategy"], "hybrid")
+        self.assertEqual(result["retrieved_passage_count"], 1)
         self.assertEqual(result["sources"][0]["article_number"], 1)
 
     def test_reference_expansion_selects_bounded_engine(self):
