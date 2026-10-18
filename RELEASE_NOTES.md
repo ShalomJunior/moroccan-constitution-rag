@@ -11,7 +11,7 @@ Cette version permet de rechercher dans le texte français de la Constitution ma
 
 ## Limites connues
 
-Les contrôles de citation ne prouvent ni la justesse juridique ni la complétude d'une réponse. Sur 15 questions de développement relues après les dernières modifications de génération, 8 réponses satisfaisaient les quatre critères de la grille. Ce petit échantillon ne mesure pas la fiabilité générale. Le benchmark final et le test réservé de la feuille de route ne sont pas terminés ; cette version n'est donc pas la release évaluée `v1.0`.
+Les contrôles de citation ne prouvent ni la justesse juridique ni la complétude d'une réponse. Sur 15 questions de développement relues après les dernières modifications de génération, 8 réponses satisfaisaient les quatre critères de la grille. Ce petit échantillon ne mesure pas la fiabilité générale. Le benchmark final et le test réservé ne sont pas terminés ; cette version n'est donc pas la release évaluée `v1.0`.
 
 Le PDF source, les modèles, le corpus généré, les clés et les runs ne sont pas inclus. Le [README](README.md) donne les commandes pour reconstruire le corpus localement et lancer l'application. Les conditions de redistribution du PDF et des textes dérivés doivent être vérifiées séparément.
 
