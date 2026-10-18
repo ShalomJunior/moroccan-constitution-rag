@@ -59,8 +59,13 @@ def validate_selection_inputs(questions_path: Path, run_paths: list[Path], minim
         raise ValueError(f"Validation needs at least {minimum_families} distinct families")
     if any(q.get("review_status") != "reviewed" for q in validation):
         raise ValueError("Validation questions are not all reviewed")
-    if any(not q.get("acceptable_evidence_sets") for q in validation):
-        raise ValueError("Validation questions need reviewed sufficient evidence sets")
+    if any(q.get("expected_status") not in {"answered", "partially_answered", "needs_clarification",
+                                               "insufficient_evidence", "out_of_scope"} for q in validation):
+        raise ValueError("Validation questions need expected answer statuses")
+    answerable = {q["question_id"] for q in validation
+                  if q["expected_status"] in {"answered", "partially_answered"}}
+    if not answerable or any(not q.get("acceptable_evidence_sets") for q in validation if q["question_id"] in answerable):
+        raise ValueError("Answerable validation questions need reviewed sufficient evidence sets")
     if not run_paths:
         raise ValueError("At least one candidate run is required")
     manifests = []
@@ -70,13 +75,15 @@ def validate_selection_inputs(questions_path: Path, run_paths: list[Path], minim
             raise ValueError("Candidate run does not match the validation questions")
         if set(manifest["question_ids"]) != {q["question_id"] for q in validation}:
             raise ValueError("Candidate run omits validation questions")
-        if any(row["metrics"].get("complete_evidence") is None for row in rows):
-            raise ValueError("Candidate run lacks evidence coverage")
+        if any(row["metrics"].get("complete_evidence") is None for row in rows
+               if row["question_id"] in answerable):
+            raise ValueError("Candidate run lacks evidence coverage for answerable questions")
         manifests.append(manifest)
     if len({m["passages_sha256"] for m in manifests}) != 1 or len({m["article_k"] for m in manifests}) != 1:
         raise ValueError("Candidates must use the same corpus and k")
     return {"status": "ready_for_retrieval_selection", "family_count": len(families),
-            "candidate_count": len(manifests), "questions_sha256": digest(questions_path.read_bytes())}
+            "candidate_count": len(manifests), "answerable_questions": len(answerable),
+            "questions_sha256": digest(questions_path.read_bytes())}
 
 
 def select_validation(questions_path: Path, run_paths: list[Path], policy_path: Path) -> dict:
@@ -84,12 +91,15 @@ def select_validation(questions_path: Path, run_paths: list[Path], policy_path: 
     if policy.get("primary_metric") != "complete_evidence" or policy.get("tie_breaker") != "mrr":
         raise ValueError("Unknown validation selection policy")
     readiness = validate_selection_inputs(questions_path, run_paths, policy.get("minimum_families", 45))
+    answerable = {q["question_id"] for q in read_jsonl(questions_path)
+                  if q.get("split") == "validation" and q.get("expected_status") in {"answered", "partially_answered"}}
     candidates = []
     for path in run_paths:
         manifest, rows = _run(path)
-        evidence = [row["metrics"]["complete_evidence"] for row in rows]
-        mrr = [row["metrics"]["mrr"] for row in rows if row["metrics"]["mrr"] is not None]
-        candidates.append({"run": str(path), "method": manifest["method"],
+        evidence = [row["metrics"]["complete_evidence"] for row in rows if row["question_id"] in answerable]
+        mrr = [row["metrics"]["mrr"] for row in rows
+               if row["question_id"] in answerable and row["metrics"]["mrr"] is not None]
+        candidates.append({"run": path.name, "method": manifest["method"],
                            "complete_evidence": sum(evidence) / len(evidence),
                            "mrr": sum(mrr) / len(mrr) if mrr else None})
     ranked = sorted(candidates, key=lambda item: (-item["complete_evidence"],

@@ -1,5 +1,11 @@
 # Project log
 
+## 2026-10-18 — Latency, release gates, and blind review tooling
+
+- Measured provisional BM25S retrieval on 15 dev questions: 200.758 ms index build, 0.284 ms median first-query latency, 0.952 ms median concurrent warm latency, 0 errors across 60 calls. No model or answer-quality conclusion follows.
+- Added fixed-subset triple-generation variability tooling, a release manifest with frozen input/code/config hashes and analysis plan, and a reserved-test runner that resumes per question. The current corpus and benchmark fail the release gate, so no release candidate or final test was run.
+- Added blind answer packets, private system mapping, finalized human-judgment validation, risk/coverage and strict-success summaries, and family-paired bootstrap intervals. These have synthetic tests only; no human judgments or final statistics exist.
+
 ## 2026-10-18 — Demo controls and experiment gates
 
 - Added bounded concurrent local-model calls, input limits, safety fixtures, and a short demo threat model. Structural citation checks reject forged quotes; semantic support remains unverified.

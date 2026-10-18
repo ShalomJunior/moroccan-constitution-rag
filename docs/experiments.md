@@ -10,7 +10,7 @@ The remaining ingestion, chunking, reranking, reference expansion, decomposition
 
 ## Validation selection (J32)
 
-`constitution-evidence select-validation --questions PATH RUN_ID [RUN_ID ...]` applies the tracked [selection policy](../configs/selection_policy.json) to complete validation runs. It requires at least 45 distinct reviewed families with sufficient evidence sets and non-null complete evidence scores. The primary criterion is complete evidence; MRR breaks ties. It refuses provisional or incomplete data and never opens test runs. Answer risk, coverage, and an abstention threshold require reviewed response judgments and are therefore outside this retrieval-only choice.
+`constitution-evidence select-validation --questions PATH RUN_ID [RUN_ID ...]` applies the tracked [selection policy](../configs/selection_policy.json) to complete validation runs. It requires at least 45 distinct reviewed families. Answerable questions need sufficient evidence sets and non-null complete evidence scores; ambiguous and out-of-scope questions remain in the inventory but are excluded from this retrieval metric. The primary criterion is complete evidence; MRR breaks ties. It refuses provisional or incomplete data and never opens test runs. Answer risk, coverage, and an abstention threshold require reviewed response judgments and are therefore outside this retrieval-only choice.
 
 ## Oracle context (J33)
 

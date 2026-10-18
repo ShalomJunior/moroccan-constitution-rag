@@ -44,6 +44,8 @@ The API and browser also support short French follow-ups such as “Que prévoit
 
 The next experiment commands are `compare-runs`, `select-validation`, and `oracle-run`; their data gates and limits are in [experiments](docs/experiments.md). The [demo threat model](docs/demo-threat-model.md) and [installation status](reports/installation-and-usability.md) describe the current offline checks.
 
+Latency measurement, release readiness, reserved-test preflight, blind review packets, and paired statistics are described in [release and judgments](docs/release-and-judgments.md). The release gate currently blocks final testing because the French OCR and benchmark labels are not reviewed.
+
 ## Local open model
 
 The optional [local Qwen setup](docs/local-model.md) uses llama.cpp on `127.0.0.1:8080` and costs no API calls. Run `constitution-evidence ask 'Votre question' --generator local` or select “Résumé local expérimental” in the interface. Exact citations are checked server side; semantic correctness and OCR quality are still unverified. A Gemini adapter remains optional for future comparisons, but no key is needed for the local or extractive modes.

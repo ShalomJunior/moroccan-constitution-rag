@@ -54,6 +54,36 @@ def _main(argv=None):
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
     p.add_argument("--split", choices=["dev", "validation"], default="dev")
     p.add_argument("--run-id", required=True)
+    p = sub.add_parser("bench-retrieval")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/calibration.jsonl")
+    p.add_argument("--strategy", choices=["bm25", "dense", "hybrid", "hybrid-rerank"], default="bm25")
+    p.add_argument("--repeat", type=int, default=3)
+    p.add_argument("--concurrency", type=int, default=2)
+    p.add_argument("--run-id", required=True)
+    p = sub.add_parser("bench-generation")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/calibration.jsonl")
+    p.add_argument("--selection", type=Path, default=ROOT / "configs/latency_questions.json")
+    p.add_argument("--run-id", required=True)
+    p = sub.add_parser("release-readiness")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
+    p.add_argument("--selection", type=Path, default=ROOT / "runs/validation-selection.json")
+    p.add_argument("--systems", type=Path, default=ROOT / "configs/final_systems.json")
+    p.add_argument("--output", type=Path, default=ROOT / "runs/release-candidate/manifest.json")
+    p = sub.add_parser("test-preflight")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
+    p.add_argument("--release-manifest", type=Path, default=ROOT / "runs/release-candidate/manifest.json")
+    p = sub.add_parser("blind-packets")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
+    p.add_argument("--release-manifest", type=Path, default=ROOT / "runs/release-candidate/manifest.json")
+    p.add_argument("--fulltext", type=Path, required=True)
+    p.add_argument("--bm25-rag", type=Path, required=True)
+    p.add_argument("--selected-pipeline", type=Path, required=True)
+    p.add_argument("--output", type=Path, required=True)
+    p = sub.add_parser("score-judgments")
+    p.add_argument("--mapping", type=Path, required=True)
+    p.add_argument("--judgments", type=Path, required=True)
+    p.add_argument("--replications", type=int, default=2000)
+    p.add_argument("--seed", type=int, default=20261018)
     sub.add_parser("serve")
     args = parser.parse_args(argv)
     articles, passages, manifest = corpus_paths()
@@ -127,6 +157,9 @@ def _main(argv=None):
     elif args.command == "evaluate":
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.run_id):
             raise ValueError("Run ID must be a simple name of at most 80 characters")
+        if args.split == "test":
+            from .release import assert_reserved_test_ready
+            assert_reserved_test_ready(ROOT / "runs/release-candidate/manifest.json", args.questions, manifest)
         result = evaluate(args.questions, passages, args.split, ROOT / "runs" / args.run_id,
                           args.k, args.strategy, args.context_chars)
     elif args.command == "report":
@@ -152,6 +185,56 @@ def _main(argv=None):
         if digest(passages.read_bytes()) != metadata["passages_hash"]:
             raise ValueError("Passages hash does not match the active manifest")
         result = run_oracle(args.questions, passages, metadata, ROOT / "runs" / args.run_id, args.split)
+    elif args.command == "bench-retrieval":
+        from .benchmark import measure_retrieval
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.run_id):
+            raise ValueError("Invalid run ID")
+        result = measure_retrieval(args.questions, passages, args.strategy, args.repeat, args.concurrency)
+        output = ROOT / "runs" / args.run_id / "latency.json"
+        if output.exists():
+            raise ValueError("Benchmark run ID already exists")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+        result = {key: value for key, value in result.items() if key != "observations"}
+        result["artifact"] = str(output)
+    elif args.command == "bench-generation":
+        from .benchmark import measure_generation_variability
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.run_id):
+            raise ValueError("Invalid run ID")
+        selection = json.loads(args.selection.read_text())
+        if selection.get("split") != "dev" or selection.get("repeats") != 3:
+            raise ValueError("Variability selection must be predeclared on dev with three repeats")
+        metadata = json.loads(manifest.read_text())
+        if digest(passages.read_bytes()) != metadata["passages_hash"]:
+            raise ValueError("Passages hash does not match the active manifest")
+        output = ROOT / "runs" / args.run_id / "generation_variability.json"
+        if output.exists():
+            raise ValueError("Benchmark run ID already exists")
+        result = measure_generation_variability(args.questions, passages, metadata,
+                                                 selection["selected_question_ids"])
+        result["selection_sha256"] = digest(args.selection.read_bytes())
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+        result = {key: value for key, value in result.items() if key != "observations"}
+        result["artifact"] = str(output)
+    elif args.command == "release-readiness":
+        from .release import release_readiness
+        result = release_readiness(args.questions, manifest, args.selection, args.systems)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+        result["manifest"] = str(args.output)
+    elif args.command == "test-preflight":
+        from .release import assert_reserved_test_ready
+        result = assert_reserved_test_ready(args.release_manifest, args.questions, manifest)
+    elif args.command == "blind-packets":
+        from .release import assert_reserved_test_ready
+        from .judgments import prepare_blind_packets
+        assert_reserved_test_ready(args.release_manifest, args.questions, manifest)
+        result = prepare_blind_packets(args.questions, {"fulltext": args.fulltext,
+            "bm25_rag": args.bm25_rag, "selected_pipeline": args.selected_pipeline}, args.output)
+    elif args.command == "score-judgments":
+        from .judgments import score_judgments
+        result = score_judgments(args.mapping, args.judgments, args.replications, args.seed)
     else:
         try:
             import uvicorn
