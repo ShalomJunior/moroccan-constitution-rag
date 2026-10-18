@@ -60,7 +60,8 @@ class ApiContracts(unittest.TestCase):
         with patch("constitution_evidence.api.corpus_paths", return_value=(None, None, Path(__file__))):
             with patch("constitution_evidence.api._load_corpus", return_value=(None, manifest, {"p-20": hit})):
                 with patch("constitution_evidence.api._engine", return_value=Engine()):
-                    with patch("constitution_evidence.groq_generation.GroqGenerator.generate", return_value=answer):
+                    with patch("constitution_evidence.groq_generation.GroqGenerator") as generator:
+                        generator.return_value.generate.return_value = answer
                         result = ask(AskRequest(question="Question ?", generator="groq"))
         self.assertEqual(result["status"], "insufficient_evidence")
         self.assertEqual(result["sources"], [])
