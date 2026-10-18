@@ -50,6 +50,18 @@ class QuestionAuditTests(unittest.TestCase):
             result = audit_questions(questions, passages, "hash")
             self.assertIn("v1: exact question wording crosses splits with d1", result["problems"])
 
+    def test_candidate_articles_must_exist_in_corpus(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            questions, passages = root / "questions.jsonl", root / "passages.jsonl"
+            write_jsonl(passages, [{"passage_id": "p1", "article_number": 20,
+                                    "canonical_text": "La loi protège ce droit."}])
+            write_jsonl(questions, [{"question_id": "q1", "family_id": "q1", "split": "dev",
+                                     "language": "fr", "question": "Que dit l'article 20 ?",
+                                     "candidate_articles": [20, 21], "review_status": "author_provisional"}])
+            result = audit_questions(questions, passages, "hash")
+            self.assertIn("q1: candidate_articles contains an invalid or duplicate article", result["problems"])
+
 
 if __name__ == "__main__":
     unittest.main()

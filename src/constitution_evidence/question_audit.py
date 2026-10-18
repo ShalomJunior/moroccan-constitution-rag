@@ -15,6 +15,7 @@ def audit_questions(questions_path, passages_path, corpus_hash):
     """Return inventory and defects. A clean audit is not a human review."""
     questions = read_jsonl(questions_path) if questions_path.exists() else []
     passages = {p["passage_id"]: p for p in read_jsonl(passages_path)} if passages_path.exists() else {}
+    corpus_articles = {p["article_number"] for p in passages.values()}
     problems = []
     counts = Counter()
     categories = Counter()
@@ -54,6 +55,11 @@ def audit_questions(questions_path, passages_path, corpus_hash):
         category = q.get("category")
         if isinstance(category, str) and category in CATEGORIES:
             categories[category] += 1
+        candidates = q.get("candidate_articles")
+        if candidates is not None and (not isinstance(candidates, list) or any(
+                type(number) is not int or number not in corpus_articles for number in candidates)
+                or len(candidates) != len(set(candidates))):
+            problems.append(f"{qid}: candidate_articles contains an invalid or duplicate article")
         if q.get("review_status") != "reviewed":
             problems.append(f"{qid}: human annotation is not reviewed")
             continue
