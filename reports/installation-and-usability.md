@@ -1,0 +1,5 @@
+# Installation and usability status (J30)
+
+The dependency graph is recorded in `uv.lock`; `uv lock --check --offline` passed on 2026-10-18. CI installs the API extra, runs the offline unit suite, and checks the CLI entry point. Locally, 59 tests passed with the API, Groq, and dense extras. The Docker image built with locked dependencies; live container requests to BM25, Dense, Hybrid, and Hybrid with reranking returned 200. The application does not invoke an installer at runtime. A fresh-clone installation on another machine has not been executed here; it remains a release check.
+
+The browser offers three inspectable paths: a direct article question, a multi-article question with each cited passage and PDF page, and a short follow-up with a **Nouveau sujet** reset. These are author walkthroughs of the interface, not external user tests. No two or three volunteer users were available. Corpus review, 180 reviewed benchmark families, and a `v1` annotation freeze remain deferred as requested; no frozen benchmark is claimed.

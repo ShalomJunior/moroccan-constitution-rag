@@ -1,0 +1,7 @@
+{
+  "split": "dev",
+  "selected_question_ids": ["cal-01", "cal-03", "cal-04", "cal-10", "cal-15"],
+  "repeats": 3,
+  "generator": "local",
+  "selection_note": "Chosen before a live Qwen variability run; provisional development questions only."
+}

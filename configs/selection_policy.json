@@ -1,0 +1,6 @@
+{
+  "minimum_families": 45,
+  "primary_metric": "complete_evidence",
+  "tie_breaker": "mrr",
+  "scope": "reviewed_validation_retrieval_only"
+}

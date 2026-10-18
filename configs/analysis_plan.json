@@ -1,0 +1,12 @@
+{
+  "version": "v1-draft-before-test",
+  "primary_outcome": "strict_success_per_question",
+  "secondary_outcomes": ["risk_among_answers", "coverage", "technical_error_rate", "latency_ms"],
+  "paired_unit": "family_id",
+  "bootstrap_replications": 2000,
+  "bootstrap_seed": 20261018,
+  "confidence_interval": 0.95,
+  "systems": ["fulltext", "bm25_rag", "selected_pipeline"],
+  "test_families": 90,
+  "language": "fr"
+}

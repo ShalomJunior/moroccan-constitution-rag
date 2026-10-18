@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Constitution Evidence</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.55 system-ui, sans-serif; background: #f6f5f0; color: #172c28; }
+    body { max-width: 880px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+    h1 { margin-bottom: .3rem; font-size: 2rem; }
+    .sub { color: #52635e; margin-top: 0; }
+    form { display: flex; flex-wrap: wrap; gap: .5rem; margin: 2rem 0; }
+    #question { flex: 1; padding: .8rem; border: 1px solid #aebcb6; border-radius: .4rem; font: inherit; }
+    label { display: inline-flex; align-items: center; gap: .35rem; }
+    select { padding: .8rem; border: 1px solid #aebcb6; border-radius: .4rem; font: inherit; background: white; }
+    button { padding: .8rem 1.2rem; border: 0; border-radius: .4rem; background: #135b4a; color: white; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .6; }
+    article { background: white; border: 1px solid #d6ded9; border-radius: .6rem; padding: 1rem 1.2rem; margin: .8rem 0; }
+    article p { white-space: pre-wrap; }
+    .meta { font-size: .9rem; color: #53645d; }
+    a { color: #135b4a; }
+    .notice { background: #fff8dd; padding: .8rem 1rem; border-radius: .4rem; }
+  </style>
+</head>
+<body>
+  <h1>Constitution Evidence</h1>
+  <p class="sub">Extraits de la Constitution marocaine de 2011, édition française.</p>
+  <p class="notice">Texte issu d’une reconnaissance optique non encore relue. Les extraits sont des pistes documentaires, sans validation de leur pertinence juridique.</p>
+  <form id="ask-form"><input id="question" name="question" maxlength="2000" required placeholder="Ex. Que disent les articles 20 et 21 ?"><select id="strategy" aria-label="Méthode de recherche"><option value="bm25">BM25</option><option value="dense">Dense</option><option value="hybrid">Hybride</option><option value="hybrid-rerank">Hybride + reranking</option></select><select id="generator" aria-label="Mode de réponse"><option value="extractive">Extraits</option><option id="local-option" value="local" disabled>Résumé local (serveur Qwen indisponible)</option><option value="groq">Résumé Groq (en ligne)</option></select><label><input id="expand-references" type="checkbox"> Suivre les renvois</label><label><input id="decompose" type="checkbox"> Décomposer la recherche</label><button id="submit">Chercher</button><button id="reset" type="button">Nouveau sujet</button></form>
+  <p class="meta">Le mode Groq transmet votre question et les extraits retrouvés au fournisseur. Le résumé local nécessite un serveur Qwen séparé ; le conteneur Docker ne le lance pas. Le premier appel dense peut télécharger ses modèles.</p>
+  <main id="results" aria-live="polite"></main>
+  <script>
+    const form = document.getElementById('ask-form');
+    const results = document.getElementById('results');
+    const localOption = document.getElementById('local-option');
+    fetch('/capabilities').then(response => response.json()).then(capabilities => {
+      localOption.disabled = !capabilities.local_generation_available;
+      localOption.textContent = capabilities.local_generation_available ? 'Résumé local (Qwen)' : 'Résumé local (serveur Qwen indisponible)';
+    }).catch(() => {});
+    let history = [];
+    document.getElementById('reset').addEventListener('click', () => { history = []; results.replaceChildren(); document.getElementById('question').value = ''; });
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = document.getElementById('submit');
+      button.disabled = true;
+      results.replaceChildren();
+      try {
+        const response = await fetch('/ask', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question: document.getElementById('question').value, history, generator: document.getElementById('generator').value, strategy: document.getElementById('strategy').value, expand_references: document.getElementById('expand-references').checked, decompose: document.getElementById('decompose').checked})});
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          const detail = error.detail || 'Recherche indisponible (' + response.status + ')';
+          throw new Error(String(detail).startsWith('local_provider_unavailable') ? 'Serveur Qwen local indisponible. Démarrez-le puis actualisez la page, ou choisissez Groq.' : detail);
+        }
+        const answer = await response.json();
+        if (answer.dialogue && !answer.dialogue.needs_clarification) history = [...history, {article_numbers: answer.dialogue.next_article_numbers}].slice(-3);
+        const note = document.createElement('p'); note.className = 'meta'; note.textContent = [answer.retrieval_strategy, answer.limitations].filter(Boolean).join(' · ');
+        results.append(note);
+        if (answer.dialogue && answer.dialogue.used_article) { const resolved = document.createElement('p'); resolved.className = 'meta'; resolved.textContent = 'Question reformulée : ' + answer.dialogue.resolved_question; results.append(resolved); }
+        if (answer.decomposition) {
+          const plan = document.createElement('p'); plan.className = 'meta';
+          plan.textContent = 'Recherches : question originale + ' + answer.decomposition.subquestions.join(' ; ') + ' (' + answer.decomposition.retrieval_calls + ' appels)';
+          results.append(plan);
+        }
+        if (!answer.claims.length) {
+          const empty = document.createElement('p');
+          if (answer.status === 'needs_clarification') empty.textContent = answer.clarification_question || 'Précisez votre question.';
+          else if (answer.status === 'out_of_scope') empty.textContent = 'Cette question sort du périmètre de la Constitution marocaine de 2011.';
+          else if (answer.status === 'insufficient_evidence' && answer.retrieved_passage_count === 0) empty.textContent = 'Aucun passage pertinent n’a été retrouvé dans le corpus.';
+          else if (answer.status === 'insufficient_evidence') empty.textContent = 'Des passages ont été retrouvés, mais ils ne permettent pas de répondre avec une preuve suffisante.';
+          else empty.textContent = 'Aucune réponse étayée n’a été produite.';
+          results.append(empty);
+        }
+        answer.claims.forEach(claim => {
+          const card = document.createElement('article');
+          const excerpt = document.createElement('p'); excerpt.textContent = claim.text;
+          card.append(excerpt);
+          claim.evidence_spans.forEach(span => {
+            const source = answer.sources.find(s => s.passage_id === span.passage_id);
+            if (!source) return;
+            const details = document.createElement('details');
+            const summary = document.createElement('summary'); summary.textContent = (source.article_number ? 'Article ' + source.article_number : 'Préambule') + ' · voir le passage cité';
+            const quote = document.createElement('p'); quote.textContent = 'Citation : « ' + span.quote + ' »';
+            const full = document.createElement('p'); full.className = 'meta'; full.textContent = 'Ouvrez pour charger le passage complet.';
+            const link = document.createElement('a'); link.textContent = 'Voir le PDF, page ' + source.page_spans[0];
+            link.href = source.source_url + '#page=' + source.page_spans[0]; link.target = '_blank'; link.rel = 'noopener noreferrer';
+            details.append(summary, quote, full, link);
+            if (source.reference) {
+              const origin = document.createElement('p'); origin.className = 'meta';
+              origin.textContent = 'Ajouté par renvoi explicite de l’article ' + source.reference.from_article + ' : « ' + source.reference.reference_quote + ' »';
+              details.append(origin);
+            }
+            details.addEventListener('toggle', async () => {
+              if (!details.open || details.dataset.loaded) return;
+              details.dataset.loaded = 'true';
+              try {
+                const response = await fetch('/sources/' + encodeURIComponent(span.passage_id));
+                if (!response.ok) throw new Error('Passage indisponible (' + response.status + ')');
+                const passage = await response.json();
+                full.textContent = passage.canonical_text;
+              } catch (error) { full.textContent = error.message; }
+            });
+            card.append(details);
+          });
+          results.append(card);
+        });
+      } catch (error) { const p = document.createElement('p'); p.textContent = error.message; results.append(p); }
+      finally { button.disabled = false; }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "primary": {
+    "document": "Constitution du Royaume du Maroc, édition française de 2011",
+    "text_version": "2011",
+    "language": "fr",
+    "source_page": "https://maroc.ma/fr/le-maroc/constitution",
+    "download_url": "https://maroc.ma/sites/default/files/2024-10/constitution_du_1er_juillet_2011.pdf",
+    "downloaded_at_utc": "2026-10-17",
+    "sha256": "4101d45b4733a6b36eee77bd9ef4175b23160103089b003b13907e8b6d59333d",
+    "page_count": 28,
+    "extraction": "Tesseract OCR in French; review pending"
+  },
+  "control": {
+    "source_page": "https://www.sgg.gov.ma/",
+    "download_url": "https://www.sgg.gov.ma/Portals/0/constitution/constitution_2011_Fr.pdf",
+    "downloaded_at_utc": "2026-10-17",
+    "sha256": "57440b83b034ec2995f3db09e7cbcb8d73a513e01fc84a841d93f6791c6b2215",
+    "page_count": 65,
+    "extraction": "Poppler text layer unreadable; not used as canonical corpus"
+  }
+}

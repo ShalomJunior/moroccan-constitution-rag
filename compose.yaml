@@ -1,0 +1,39 @@
+services:
+  constitution-evidence:
+    build: .
+    user: "${CONSTITUTION_UID:-1000}:${CONSTITUTION_GID:-1000}"
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-20b}
+      CONSTITUTION_MODEL_CACHE: /app/data/models/fastembed
+      CONSTITUTION_DENSE_INDEX: /app/data/models/dense-index
+      HF_HOME: /app/data/models/huggingface
+      XDG_CACHE_HOME: /app/data/models/xdg
+      HOME: /app/data/models/home
+    volumes:
+      - type: bind
+        source: ./data/processed
+        target: /app/data/processed
+        read_only: true
+        bind:
+          create_host_path: false
+      - dense-models:/app/data/models
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3))['status'] == 'ok'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  dense-models:
