@@ -23,6 +23,7 @@ class AskRequest(BaseModel):
     generator: Literal["extractive", "local"] = "extractive"
     strategy: Literal["bm25", "dense", "hybrid", "hybrid-rerank"] = "bm25"
     expand_references: bool = False
+    decompose: bool = False
 
 @lru_cache(maxsize=2)
 def _load_corpus(manifest_hash: str):
@@ -87,17 +88,32 @@ def ask(request: AskRequest):
                   else _engine(manifest_hash, request.strategy))
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         raise HTTPException(503, str(exc)) from exc
-    hits = engine.search(request.question, request.top_k)
+    if request.decompose:
+        from .decomposition import retrieve_multi
+        from .generation import GenerationError
+        try:
+            hits, decomposition = retrieve_multi(request.question, engine, request.top_k)
+        except GenerationError as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+    else:
+        hits, decomposition = engine.search(request.question, request.top_k), None
     if request.generator == "local":
         from .local_generation import LocalGenerator, GenerationError
+        context = pack(hits, 7000)
         try:
-            answer = LocalGenerator().generate(request.question, pack(hits, 7000), manifest)
+            answer = LocalGenerator().generate(request.question, context, manifest)
         except GenerationError as exc:
             raise HTTPException(503, str(exc)) from exc
     else:
+        context = pack(hits, 12000)
         answer = extractive_answer(hits, manifest)
+    if decomposition:
+        decomposition["context_passage_ids"] = [hit["passage_id"] for hit in context]
     answer["retrieval_strategy"] = request.strategy
     answer["reference_expansion"] = request.expand_references
+    answer["decomposition"] = decomposition
     return answer
 
 @app.get("/sources/{source_id:path}")

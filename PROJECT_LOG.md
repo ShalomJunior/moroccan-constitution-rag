@@ -37,3 +37,9 @@
 - Added an optional one-hop reference graph from article text, with exact quote offsets and target inventory checks. A query can reserve one result for an article cited inside a retrieved passage, without recursive expansion.
 - Exposed the option in the CLI, API, and interface, and attached reference provenance to returned sources. On the current corpus, a query for article 51 returned article 96 via the explicit text “articles 96, 97 et 98”.
 - The graph is extracted from unreviewed OCR. It is an experimental retrieval option, not a measured improvement or a verified legal interpretation.
+
+## 2026-10-18 — Bounded multi-evidence search
+
+- Added an optional search plan with the original question and at most two focused subquestions. Explicit multi-article questions plan locally; conceptual questions use the loopback Qwen server with JSON validation.
+- Search results are merged with deduplication and trace the questions, candidate IDs, selected IDs, actual context IDs, call counts, token usage when returned, and elapsed time. The original question is always searched, and no recursive agent loop is used.
+- A local explicit-article smoke query retrieved passages from articles 20 and 21 in three bounded searches. Conceptual Qwen planning has contract tests but has not been run against a live model; no quality improvement is claimed.

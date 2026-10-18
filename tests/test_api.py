@@ -32,5 +32,16 @@ class ApiContracts(unittest.TestCase):
         self.assertEqual(select.call_args.args[1], "bm25")
         self.assertTrue(result["reference_expansion"])
 
+    def test_decomposition_trace_reports_supplied_context(self):
+        passage = {"passage_id": "p-1", "article_number": 1, "canonical_text": "Une preuve.",
+                   "text_hash": "hash", "page_spans": [3]}
+        trace = {"subquestions": ["article 1"], "retrieval_calls": 2}
+        with patch("constitution_evidence.api.corpus_paths", return_value=(None, None, Path(__file__))):
+            with patch("constitution_evidence.api._load_corpus", return_value=(None, {"source_url": "https://example.org/a.pdf"}, {})):
+                with patch("constitution_evidence.api._engine", return_value=object()):
+                    with patch("constitution_evidence.decomposition.retrieve_multi", return_value=([passage], trace)):
+                        result = ask(AskRequest(question="Question ?", decompose=True))
+        self.assertEqual(result["decomposition"]["context_passage_ids"], ["p-1"])
+
 if __name__ == "__main__":
     unittest.main()

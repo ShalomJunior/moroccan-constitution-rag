@@ -24,6 +24,7 @@ def main(argv=None):
     p.add_argument("--top-k", type=int, default=5)
     p.add_argument("--strategy", choices=["bm25", "dense", "hybrid", "hybrid-rerank"], default="bm25")
     p.add_argument("--expand-references", action="store_true")
+    p.add_argument("--decompose", action="store_true", help="Up to three searches; conceptual questions need the local Qwen server")
     p.add_argument("--generator", choices=["extractive", "local", "gemini"], default="extractive")
     p.add_argument("--context", choices=["retrieved", "fulltext"], default="retrieved")
     p = sub.add_parser("evaluate")
@@ -62,6 +63,8 @@ def main(argv=None):
         result = write_audit_html(records, metadata, args.output, ROOT / config["pdf_path"],
                                   ROOT / "data/processed/pages" / metadata["page_cache_key"])
     elif args.command == "ask":
+        if args.decompose and args.context == "fulltext":
+            raise ValueError("Decomposition applies only to retrieved context")
         records = read_jsonl(passages)
         metadata = json.loads(manifest.read_text())
         if digest(passages.read_bytes()) != metadata["passages_hash"]:
@@ -78,20 +81,29 @@ def main(argv=None):
                 raise ValueError("Articles hash does not match the active manifest")
             engine = ReferenceExpander(engine, read_jsonl(articles), records,
                                        review_status=metadata["review_status"])
-        hits = engine.search(args.question, args.top_k)
+        if args.decompose:
+            from .decomposition import retrieve_multi
+            hits, decomposition = retrieve_multi(args.question, engine, args.top_k)
+        else:
+            hits, decomposition = engine.search(args.question, args.top_k), None
         if args.generator == "extractive":
             if args.context == "fulltext":
                 raise ValueError("Fulltext is a generative baseline only")
             result = extractive_answer(hits, metadata)
+            supplied = pack(hits, 12000)
         elif args.generator == "local":
             if args.context == "fulltext":
                 raise ValueError("The local model's context is too small for the fulltext baseline")
             from .local_generation import LocalGenerator
-            result = LocalGenerator().generate(args.question, pack(hits, 7000), metadata)
+            supplied = pack(hits, 7000)
+            result = LocalGenerator().generate(args.question, supplied, metadata)
         else:
             from .generation import GeminiGenerator
             supplied = records if args.context == "fulltext" else hits
             result = GeminiGenerator().generate(args.question, supplied, metadata)
+        if decomposition:
+            decomposition["context_passage_ids"] = [hit["passage_id"] for hit in supplied]
+        result["decomposition"] = decomposition
     elif args.command == "evaluate":
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.run_id):
             raise ValueError("Run ID must be a simple name of at most 80 characters")

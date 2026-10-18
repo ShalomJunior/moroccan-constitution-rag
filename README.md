@@ -38,6 +38,8 @@ The API accepts a strategy in `POST /ask`, for example `{"question":"Que disent 
 
 Reference expansion is optional: select “Suivre les renvois” in the interface, pass `--expand-references` to `constitution-evidence ask`, or set `"expand_references":true` in `POST /ask`. It follows at most one explicit article reference found in a retrieved passage, and the added source records the originating article, passage, exact reference quote, and offsets. It never follows a second hop. This is an experimental evidence-gathering feature; its benefit has not been measured on reviewed questions.
 
+For questions needing several pieces of evidence, use `--decompose` or `"decompose":true` in `POST /ask`. This runs the original query plus at most two focused searches and returns a trace of the plan and supplied passages. Explicitly named articles work without a model; conceptual decomposition uses the local Qwen server even when the answer mode is extractive. See [multi-evidence search](docs/multi-evidence.md).
+
 ## Local open model
 
 The optional [local Qwen setup](docs/local-model.md) uses llama.cpp on `127.0.0.1:8080` and costs no API calls. Run `constitution-evidence ask 'Votre question' --generator local` or select “Résumé local expérimental” in the interface. Exact citations are checked server side; semantic correctness and OCR quality are still unverified. A Gemini adapter remains optional for future comparisons, but no key is needed for the local or extractive modes.
