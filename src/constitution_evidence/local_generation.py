@@ -49,11 +49,18 @@ class LocalGenerator:
         }
         request = Request(self.base_url + "/v1/chat/completions", data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                           headers={"Content-Type": "application/json"}, method="POST")
-        try:
-            with urlopen(request, timeout=self.timeout) as response:
-                result = json.load(response)
-        except (HTTPError, URLError, TimeoutError) as exc:
-            raise GenerationError(f"local_provider_unavailable: {exc}") from exc
+        attempts = 0
+        for attempts in (1, 2):
+            try:
+                with urlopen(request, timeout=self.timeout) as response:
+                    result = json.load(response)
+                break
+            except HTTPError as exc:
+                if attempts == 2 or exc.code not in {429, 502, 503, 504}:
+                    raise GenerationError(f"local_provider_unavailable: HTTP {exc.code}") from exc
+            except (URLError, TimeoutError) as exc:
+                if attempts == 2:
+                    raise GenerationError(f"local_provider_unavailable: {exc}") from exc
         try:
             raw = json.loads(result["choices"][0]["message"]["content"])
             if raw["status"] not in RAW_SCHEMA["properties"]["status"]["enum"]:
@@ -88,7 +95,8 @@ class LocalGenerator:
                                    "reference": permitted[pid].get("reference")}
                                   for pid in used],
                       "model": self.model, "prompt_version": LOCAL_PROMPT_VERSION,
-                      "usage": result.get("usage"), "source_quality": manifest.get("review_status")}
+                      "usage": result.get("usage"), "provider_attempts": attempts,
+                      "source_quality": manifest.get("review_status")}
             return validate_answer(answer, supplied)
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             raise GenerationError(f"invalid_output: {exc}") from exc

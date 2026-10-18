@@ -26,25 +26,29 @@
   <h1>Constitution Evidence</h1>
   <p class="sub">Extraits de la Constitution marocaine de 2011, édition française.</p>
   <p class="notice">Texte issu d’une reconnaissance optique non encore relue. Les extraits sont des pistes documentaires, sans validation de leur pertinence juridique.</p>
-  <form id="ask-form"><input id="question" name="question" maxlength="2000" required placeholder="Ex. Que disent les articles 20 et 21 ?"><select id="strategy" aria-label="Méthode de recherche"><option value="bm25">BM25</option><option value="dense">Dense</option><option value="hybrid">Hybride</option><option value="hybrid-rerank">Hybride + reranking</option></select><select id="generator" aria-label="Mode de réponse"><option value="extractive">Extraits</option><option value="local">Résumé local expérimental</option></select><label><input id="expand-references" type="checkbox"> Suivre les renvois</label><label><input id="decompose" type="checkbox"> Décomposer la recherche</label><button id="submit">Chercher</button></form>
+  <form id="ask-form"><input id="question" name="question" maxlength="2000" required placeholder="Ex. Que disent les articles 20 et 21 ?"><select id="strategy" aria-label="Méthode de recherche"><option value="bm25">BM25</option><option value="dense">Dense</option><option value="hybrid">Hybride</option><option value="hybrid-rerank">Hybride + reranking</option></select><select id="generator" aria-label="Mode de réponse"><option value="extractive">Extraits</option><option value="local">Résumé local expérimental</option></select><label><input id="expand-references" type="checkbox"> Suivre les renvois</label><label><input id="decompose" type="checkbox"> Décomposer la recherche</label><button id="submit">Chercher</button><button id="reset" type="button">Nouveau sujet</button></form>
   <main id="results" aria-live="polite"></main>
   <script>
     const form = document.getElementById('ask-form');
     const results = document.getElementById('results');
+    let history = [];
+    document.getElementById('reset').addEventListener('click', () => { history = []; results.replaceChildren(); document.getElementById('question').value = ''; });
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const button = document.getElementById('submit');
       button.disabled = true;
       results.replaceChildren();
       try {
-        const response = await fetch('/ask', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question: document.getElementById('question').value, generator: document.getElementById('generator').value, strategy: document.getElementById('strategy').value, expand_references: document.getElementById('expand-references').checked, decompose: document.getElementById('decompose').checked})});
+        const response = await fetch('/ask', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question: document.getElementById('question').value, history, generator: document.getElementById('generator').value, strategy: document.getElementById('strategy').value, expand_references: document.getElementById('expand-references').checked, decompose: document.getElementById('decompose').checked})});
         if (!response.ok) {
           const error = await response.json().catch(() => ({}));
           throw new Error(error.detail || 'Recherche indisponible (' + response.status + ')');
         }
         const answer = await response.json();
+        if (answer.dialogue && !answer.dialogue.needs_clarification) history = [...history, {article_numbers: answer.dialogue.next_article_numbers}].slice(-3);
         const note = document.createElement('p'); note.className = 'meta'; note.textContent = (answer.retrieval_strategy || '') + ' · ' + (answer.limitations || '');
         results.append(note);
+        if (answer.dialogue && answer.dialogue.used_article) { const resolved = document.createElement('p'); resolved.className = 'meta'; resolved.textContent = 'Question reformulée : ' + answer.dialogue.resolved_question; results.append(resolved); }
         if (answer.decomposition) {
           const plan = document.createElement('p'); plan.className = 'meta';
           plan.textContent = 'Recherches : question originale + ' + answer.decomposition.subquestions.join(' ; ') + ' (' + answer.decomposition.retrieval_calls + ' appels)';

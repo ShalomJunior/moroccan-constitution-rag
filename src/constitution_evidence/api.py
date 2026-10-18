@@ -1,21 +1,29 @@
 """Optional local FastAPI service; install with the api extra."""
 import json
+import logging
+import time
+import uuid
 from functools import lru_cache
 from urllib.parse import unquote
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
-from typing import Literal
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated, Literal
 from . import __version__
 from .evidence import extractive_answer, pack
+from .dialogue import resolve, next_articles
 from .retrieval import BM25, Dense, Hybrid
 from .store import ROOT, corpus_paths, read_jsonl, digest
 
 app = FastAPI(title="Constitution Evidence", version=__version__)
+logger = logging.getLogger(__name__)
 
 @app.get("/", include_in_schema=False)
 def home():
     return FileResponse(ROOT / "app/index.html")
+
+class DialogueTurn(BaseModel):
+    article_numbers: list[Annotated[int, Field(ge=1, le=180)]] = Field(max_length=5)
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
@@ -24,6 +32,17 @@ class AskRequest(BaseModel):
     strategy: Literal["bm25", "dense", "hybrid", "hybrid-rerank"] = "bm25"
     expand_references: bool = False
     decompose: bool = False
+    history: list[DialogueTurn] = Field(default_factory=list, max_length=3)
+
+class AskResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    status: Literal["answered", "partially_answered", "needs_clarification", "insufficient_evidence", "out_of_scope"]
+    claims: list[dict]
+    sources: list[dict]
+    limitations: str
+    request_id: str
+    retrieval_strategy: str
+    dialogue: dict
 
 @lru_cache(maxsize=2)
 def _load_corpus(manifest_hash: str):
@@ -78,8 +97,24 @@ def version():
     except (FileNotFoundError, ValueError):
         return {"app_version": __version__, "corpus_hash": None}
 
-@app.post("/ask")
+@app.post("/ask", response_model=AskResponse)
 def ask(request: AskRequest):
+    started = time.perf_counter()
+    request_id = uuid.uuid4().hex
+    dialogue = resolve(request.question, [turn.model_dump() for turn in request.history])
+    if dialogue["needs_clarification"]:
+        logger.info(json.dumps({"event": "ask_completed", "request_id": request_id,
+                                "strategy": request.strategy, "generator": request.generator,
+                                "retrieval_calls": 0, "source_count": 0,
+                                "status": "needs_clarification", "provider_attempts": 0,
+                                "elapsed_ms": round((time.perf_counter() - started) * 1000, 1)}))
+        return {"status": "needs_clarification", "claims": [], "sources": [],
+                "clarification_question": "De quel article parlez-vous ?",
+                "limitations": "Précisez le numéro de l'article pour continuer.",
+                "dialogue": {**dialogue, "next_article_numbers": []},
+                "request_id": request_id, "retrieval_strategy": request.strategy,
+                "reference_expansion": request.expand_references, "decomposition": None}
+    query = dialogue["resolved_question"]
     try:
         _, _, manifest_path = corpus_paths()
         manifest_hash = digest(manifest_path.read_bytes())
@@ -92,18 +127,18 @@ def ask(request: AskRequest):
         from .decomposition import retrieve_multi
         from .generation import GenerationError
         try:
-            hits, decomposition = retrieve_multi(request.question, engine, request.top_k)
+            hits, decomposition = retrieve_multi(query, engine, request.top_k)
         except GenerationError as exc:
             raise HTTPException(503, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
     else:
-        hits, decomposition = engine.search(request.question, request.top_k), None
-    if request.generator == "local":
+        hits, decomposition = engine.search(query, request.top_k), None
+    if request.generator == "local" and hits:
         from .local_generation import LocalGenerator, GenerationError
         context = pack(hits, 7000)
         try:
-            answer = LocalGenerator().generate(request.question, context, manifest)
+            answer = LocalGenerator().generate(query, context, manifest)
         except GenerationError as exc:
             raise HTTPException(503, str(exc)) from exc
     else:
@@ -114,6 +149,14 @@ def ask(request: AskRequest):
     answer["retrieval_strategy"] = request.strategy
     answer["reference_expansion"] = request.expand_references
     answer["decomposition"] = decomposition
+    answer["dialogue"] = {**dialogue, "next_article_numbers": next_articles(query, answer["sources"])}
+    answer["request_id"] = request_id
+    logger.info(json.dumps({"event": "ask_completed", "request_id": request_id,
+                            "corpus_hash": manifest.get("corpus_hash"), "strategy": request.strategy,
+                            "generator": request.generator, "retrieval_calls": decomposition["retrieval_calls"] if decomposition else 1,
+                            "source_count": len(answer["sources"]), "status": answer["status"],
+                            "usage": answer.get("usage"), "provider_attempts": answer.get("provider_attempts", 0),
+                            "elapsed_ms": round((time.perf_counter() - started) * 1000, 1)}, ensure_ascii=False))
     return answer
 
 @app.get("/sources/{source_id:path}")

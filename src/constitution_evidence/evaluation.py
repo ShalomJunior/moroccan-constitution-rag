@@ -136,6 +136,7 @@ def evaluate(questions_path: Path, passages_path: Path, split: str, output_dir: 
                                       question.get("relevant_spans"), context)
             done[question["question_id"]] = {
                 "question_id": question["question_id"], "family_id": question["family_id"], "split": split,
+                "variant_type": question.get("variant_type", "unspecified"),
                 "passage_depth": depth, "hits": [{"passage_id": h["passage_id"], "article_number": h["article_number"],
                                                   "score": h["score"]} for h in hits],
                 "context_passage_ids": [h["passage_id"] for h in context], "metrics": metrics}
@@ -160,5 +161,14 @@ def report(output_dir: Path) -> dict:
         summary["complete_evidence"] = None
         summary["complete_evidence_n"] = 0
         summary["note"] = "Legacy runs used article coverage as an evidence proxy; no span evidence was scored."
+    variants = sorted({row.get("variant_type", "unspecified") for row in rows})
+    summary["by_variant"] = {}
+    for variant in variants:
+        subset = [row["metrics"] for row in rows if row.get("variant_type", "unspecified") == variant]
+        scored = [item for item in subset if item.get("recall") is not None]
+        summary["by_variant"][variant] = {
+            "questions": len(subset), "with_evidence": len(scored),
+            "recall": sum(item["recall"] for item in scored) / len(scored) if scored else None,
+            "mrr": sum(item["mrr"] for item in scored) / len(scored) if scored else None}
     _atomic_json(output_dir / "metrics.json", summary)
     return summary

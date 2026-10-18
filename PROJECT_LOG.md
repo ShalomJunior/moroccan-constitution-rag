@@ -1,5 +1,11 @@
 # Project log
 
+## 2026-10-18 — French robustness and short dialogue
+
+- Added 45 provisional French query variants across 15 development families and compared BM25S, FastEmbed + FAISS, and hybrid retrieval. Recall@10 was 44/45, 41/45, and 44/45 respectively; see `reports/french-robustness.md` for variant and family failures. These are author labels over unreviewed OCR, not release metrics.
+- Added stateless, bounded article follow-ups and clarification, an in-memory browser reset, offline dialogue fixtures, and fresh retrieval for every resolved turn. The model never receives previous answer text as source material.
+- Added request IDs and structured completion logs, one retry for transient local model failures, and a clean abstention for empty retrieval in local mode. Full end-to-end Qwen operation and legal review are still pending.
+
 ## 2026-10-17 — Foundation
 
 - Read the 40 day roadmap and technical/evaluation specifications; scoped out all Arabic work by request.

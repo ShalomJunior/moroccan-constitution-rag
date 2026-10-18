@@ -40,6 +40,8 @@ Reference expansion is optional: select “Suivre les renvois” in the interfac
 
 For questions needing several pieces of evidence, use `--decompose` or `"decompose":true` in `POST /ask`. This runs the original query plus at most two focused searches and returns a trace of the plan and supplied passages. Explicitly named articles work without a model; conceptual decomposition uses the local Qwen server even when the answer mode is extractive. See [multi-evidence search](docs/multi-evidence.md).
 
+The API and browser also support short French follow-ups such as “Que prévoit cet article ?” using a bounded, stateless article-number history. Use **Nouveau sujet** to clear browser history. See [dialogue and operations](docs/dialogue-and-operations.md). The [French robustness report](reports/french-robustness.md) compares provisional direct, paraphrased, and typo questions; its results are development diagnostics over unreviewed OCR.
+
 ## Local open model
 
 The optional [local Qwen setup](docs/local-model.md) uses llama.cpp on `127.0.0.1:8080` and costs no API calls. Run `constitution-evidence ask 'Votre question' --generator local` or select “Résumé local expérimental” in the interface. Exact citations are checked server side; semantic correctness and OCR quality are still unverified. A Gemini adapter remains optional for future comparisons, but no key is needed for the local or extractive modes.
