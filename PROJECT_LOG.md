@@ -4,7 +4,7 @@
 
 - Added a development technical report with five saved-run retrieval failure cases, including cases where BM25S retrieves a provisional label that dense or hybrid misses. The report does not present unreviewed OCR or author-written labels as final legal evidence.
 - Added a data card, five-minute demo script, reproduction guide, and an explicit J41–J50 extension gate. No `v1.0` or `v2` tag was created because release prerequisites are incomplete.
-- Added offline recomputation of every saved retrieval metric from question labels, corpus passages, and saved hits; it rejects tampering. Added a tracked-file publication audit to CI. On the current local corpus, BM25S and hybrid saved runs reproduced, and 41 offline tests passed.
+- Added offline recomputation of every saved retrieval metric from question labels, corpus passages, and saved hits; it rejects tampering. Added a tracked-file publication audit to CI. On the current local corpus, BM25S and hybrid saved runs reproduced. A committed source archive passed all 41 offline tests using the existing environment; a fresh dependency install is still pending.
 
 ## 2026-10-18 — Latency, release gates, and blind review tooling
 
