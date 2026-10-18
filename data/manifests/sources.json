@@ -8,7 +8,7 @@
     "downloaded_at_utc": "2026-10-17",
     "sha256": "4101d45b4733a6b36eee77bd9ef4175b23160103089b003b13907e8b6d59333d",
     "page_count": 28,
-    "extraction": "Tesseract OCR in French; review pending"
+    "extraction": "Tesseract OCR in French; corrections and author review recorded in data/annotations"
   },
   "control": {
     "source_page": "https://www.sgg.gov.ma/",
