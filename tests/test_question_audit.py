@@ -38,6 +38,18 @@ class QuestionAuditTests(unittest.TestCase):
             self.assertEqual(result["reviewed_count"], 0)
             self.assertIn("q1: human annotation is not reviewed", result["problems"])
 
+    def test_normalized_duplicate_question_cannot_cross_splits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            questions, passages = root / "questions.jsonl", root / "passages.jsonl"
+            write_jsonl(questions, [
+                {"question_id": "d1", "family_id": "d1", "split": "dev", "language": "fr",
+                 "question": "Quel est le délai prévu ?", "review_status": "author_provisional"},
+                {"question_id": "v1", "family_id": "v1", "split": "validation", "language": "fr",
+                 "question": "QUEL est le delai prévu!", "review_status": "author_provisional"}])
+            result = audit_questions(questions, passages, "hash")
+            self.assertIn("v1: exact question wording crosses splits with d1", result["problems"])
+
 
 if __name__ == "__main__":
     unittest.main()

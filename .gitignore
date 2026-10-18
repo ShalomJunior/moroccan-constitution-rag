@@ -10,7 +10,7 @@ data/models/
 runs/*
 !runs/.gitkeep
 reports/ocr-audit.html
-reports/question-review.md
+reports/question-review*.md
 
 # Internal planning and working notes; keep locally, outside published revisions.
 constitution-rag/
@@ -27,3 +27,5 @@ data/annotations/development-answer-*
 data/annotations/external-review-observations.txt
 reports/kaggle-transformers-calibration.md
 reports/post-article27-calibration.md
+# Reserved test drafts stay local until annotation and freeze.
+data/annotations/test-candidates.jsonl

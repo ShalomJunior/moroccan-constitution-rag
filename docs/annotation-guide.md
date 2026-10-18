@@ -2,6 +2,10 @@
 
 Each question is one family. Paraphrases of the same intent stay in the same split. Record `question_id`, `family_id`, `split`, `language=fr`, question, category, expected status, required claims, sufficient evidence sets, article IDs and exact spans, forbidden inferences, corpus hash, annotator, and review status. Use `dev`, `validation`, and `test` splits, with planned counts 45/45/90.
 
+Draft rows use `candidate_articles` only as reading pointers. During review, inspect the full relevant articles and the PDF, then write verified `relevant_articles` and exact spans. Do not copy candidate article numbers into gold labels without checking them. Keep reserved test questions and outputs separate from parameter selection.
+
+After choosing a literal, unique quote in a canonical passage, run `constitution-evidence locate-span PASSAGE_ID 'citation exacte'`. The command refuses an unreviewed or changed corpus, a missing quote, and a quote that occurs twice. Copy `passage_id`, `char_start`, and `char_end` into `relevant_spans` and the appropriate sufficient evidence set; verify that the selected quote actually supports the required claim.
+
 Categories: direct lookup, conceptual paraphrase, multiple evidence, false premise, ambiguous, or outside corpus. A passage is relevant only when it supports an element of the answer. For multi article questions, mark all required evidence. An exact citation can still be irrelevant. Mark a source faithful but incomplete answer separately from an unsupported answer.
 
 Answers to ambiguous questions may require clarification. Outside corpus questions require a documented corpus search; retrieval failure alone is not proof of absence. Technical errors are neither correct abstentions nor legal answers. Review at least 20% of families independently if a qualified second reviewer is available. Record disagreements and limits. Do not derive test labels from model outputs.
