@@ -16,3 +16,7 @@ Les contrôles de citation ne prouvent ni la justesse juridique ni la complétud
 Le PDF source, les modèles, le corpus généré, les clés et les runs ne sont pas inclus. Le [README](README.md) donne les commandes pour reconstruire le corpus localement et lancer l'application. Les conditions de redistribution du PDF et des textes dérivés doivent être vérifiées séparément.
 
 Corpus local utilisé pour les vérifications de cette version : empreinte des articles `c319ecb4cabe0eaafc3de18779cc210ec8fa83cffbaeb2259393073e9fb4901c` ; empreinte des passages `a4abf1b043a72c18d6dcc740f3f3ebbbc1a29aeebf0eedb8c1264d0793c5079c`.
+
+## Vérification de la release
+
+Un clone temporaire de la branche `release/0.1.0` a installé les dépendances verrouillées et passé 59 tests. Avec le PDF et les données Tesseract attendus, il a reconstruit les 181 unités et 483 passages aux empreintes ci-dessus, puis `validate-corpus`, `certify-corpus` et une question en mode extraits ont réussi. L'audit des fichiers suivis n'a trouvé ni clé ni fichier local exclu.
