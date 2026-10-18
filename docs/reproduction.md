@@ -19,7 +19,7 @@ The command checks question and passage hashes, row completeness, passage IDs, a
 
 ## Demo and release
 
-`constitution-evidence serve` binds to loopback. A default extractive question requires no API key; the optional local Qwen demonstration needs a separately installed llama.cpp server and model as described in `docs/local-model.md`. The local model is not a full-text baseline under its present context budget. No external API key was available for a full-text baseline at the time of this report.
+`constitution-evidence serve` binds to loopback. A default extractive question requires no API key; the optional local Qwen demonstration needs a separately installed llama.cpp server and model as described in `docs/local-model.md`. The 4,096-token CPU setup cannot fit the full-text baseline. The Kaggle notebook starts a larger-context Qwen server and saves a measured full-text capacity check; it has not yet been run on that GPU. No external API key is needed for this path.
 
 Run `constitution-evidence publication-audit` before publishing; it inspects tracked file paths, file sizes, and common credential patterns. It is a screening check, not a legal opinion or complete secret scanner. The repository must not include downloaded PDF files, OCR/model weights, generated corpus, private `.env`, or run outputs without an explicit rights and privacy review. Run `release-readiness` and `test-preflight`. Do not tag `v1.0` while either reports a block. The current state is a development build, not a finished evaluated release.
 
