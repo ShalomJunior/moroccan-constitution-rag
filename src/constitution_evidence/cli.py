@@ -86,6 +86,9 @@ def _main(argv=None):
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
     p.add_argument("--split", choices=["dev", "validation", "test"], default="dev")
     p.add_argument("--output", type=Path, default=ROOT / "reports/question-review.md")
+    p = sub.add_parser("locate-span")
+    p.add_argument("passage_id")
+    p.add_argument("quote")
     p = sub.add_parser("test-preflight")
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
     p.add_argument("--release-manifest", type=Path, default=ROOT / "runs/release-candidate/manifest.json")
@@ -281,6 +284,9 @@ def _main(argv=None):
         from .question_packet import write_question_packet
         source_url = json.loads((ROOT / "configs/corpus.json").read_text())["source_url"]
         result = write_question_packet(args.questions, articles, passages, source_url, args.output, args.split)
+    elif args.command == "locate-span":
+        from .question_spans import locate_span
+        result = locate_span(passages, json.loads(manifest.read_text()), args.passage_id, args.quote)
     elif args.command == "release-readiness":
         from .release import release_readiness
         result = release_readiness(args.questions, manifest, args.selection, args.systems)

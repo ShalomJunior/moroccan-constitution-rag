@@ -1,5 +1,7 @@
 """Structural checks for the French question benchmark; never judge legal truth."""
 from collections import Counter
+import re
+import unicodedata
 
 from .store import read_jsonl
 
@@ -18,6 +20,7 @@ def audit_questions(questions_path, passages_path, corpus_hash):
     categories = Counter()
     seen_ids = set()
     families = {}
+    question_texts = {}
     for position, q in enumerate(questions, 1):
         if not isinstance(q, dict):
             problems.append(f"row-{position}: question must be an object")
@@ -40,16 +43,24 @@ def audit_questions(questions_path, passages_path, corpus_hash):
             families[family] = split
         if q.get("language") != "fr" or not isinstance(q.get("question"), str) or not q["question"].strip():
             problems.append(f"{qid}: French question is missing")
+        else:
+            folded = unicodedata.normalize("NFKD", q["question"].casefold())
+            normalized = re.sub(r"[^a-z0-9]+", " ", "".join(
+                char for char in folded if not unicodedata.combining(char))).strip()
+            prior = question_texts.get(normalized)
+            if prior and prior[1] != split:
+                problems.append(f"{qid}: exact question wording crosses splits with {prior[0]}")
+            question_texts.setdefault(normalized, (qid, split))
+        category = q.get("category")
+        if isinstance(category, str) and category in CATEGORIES:
+            categories[category] += 1
         if q.get("review_status") != "reviewed":
             problems.append(f"{qid}: human annotation is not reviewed")
             continue
         if q.get("corpus_hash") != corpus_hash:
             problems.append(f"{qid}: corpus hash differs")
-        category = q.get("category")
         if not isinstance(category, str) or category not in CATEGORIES:
             problems.append(f"{qid}: category is missing or invalid")
-        else:
-            categories[category] += 1
         if not isinstance(q.get("theme"), str) or not q["theme"].strip():
             problems.append(f"{qid}: theme is missing")
         status = q.get("expected_status")

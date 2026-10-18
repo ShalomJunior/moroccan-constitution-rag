@@ -36,6 +36,7 @@ def write_question_packet(questions_path: Path, articles_path: Path, passages_pa
             lines += ["", "Passages à examiner (offsets propres à chaque passage) :", ""]
             for passage in passages.get(number, []):
                 lines += [f"- `{passage['passage_id']}` — {len(passage['canonical_text'])} caractères; PDF p. {', '.join(map(str, passage.get('page_spans', [])))}"]
+                lines += ["", "```text", passage["canonical_text"], "```", ""]
             lines.append("")
         lines += ["Décision de revue : ☐ accepter ☐ corriger ☐ retirer · Notes :", "", "---", ""]
     output_path.parent.mkdir(parents=True, exist_ok=True)

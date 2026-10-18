@@ -35,6 +35,18 @@ class ReproductionTests(unittest.TestCase):
             self.assertEqual(result["status"], "review_required")
             self.assertEqual(result["findings"][0]["path"], ".env")
 
+    def test_publication_audit_flags_reserved_test_drafts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "data/annotations/test-candidates.jsonl"
+            path.parent.mkdir(parents=True)
+            path.write_text('{}\n')
+            with patch("constitution_evidence.reproduction.subprocess.check_output",
+                       return_value=b"data/annotations/test-candidates.jsonl\0"):
+                result = publication_audit(root)
+            self.assertEqual(result["status"], "review_required")
+            self.assertEqual(result["findings"][0]["path"], "data/annotations/test-candidates.jsonl")
+
 
 if __name__ == "__main__":
     unittest.main()

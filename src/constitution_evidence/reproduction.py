@@ -45,11 +45,16 @@ def publication_audit(root: Path = ROOT) -> dict:
     tracked = subprocess.check_output(["git", "ls-files", "-z"], cwd=root).decode().split("\0")
     tracked = [Path(item) for item in tracked if item]
     findings = []
-    forbidden = (".env", "data/raw/", "data/ocr/", "data/processed/", "data/models/", "runs/")
+    forbidden_exact = {".env", "PROJECT_LOG.md", "data/annotations/test-candidates.jsonl",
+                       "docs/demo-script.md", "docs/experiments.md", "docs/release-and-judgments.md",
+                       "docs/v2-decision-gate.md", "reports/technical-report.md",
+                       "reports/installation-and-usability.md"}
+    forbidden_prefix = ("data/raw/", "data/ocr/", "data/processed/", "data/models/", "runs/",
+                        "constitution-rag/")
     secret = re.compile(rb"(?:AIza[0-9A-Za-z_-]{30,}|(?:gsk_|ghp_|github_pat_)[0-9A-Za-z_-]{20,}|sk-[0-9A-Za-z_-]{20,}|-----BEGIN (?:RSA |EC )?PRIVATE KEY-----)")
     for relative in tracked:
         name = relative.as_posix()
-        if name == ".env" or any(name.startswith(prefix) for prefix in forbidden[1:]):
+        if name in forbidden_exact or any(name.startswith(prefix) for prefix in forbidden_prefix):
             findings.append({"path": name, "issue": "nonpublishable generated or private file is tracked"})
             continue
         path = root / relative
