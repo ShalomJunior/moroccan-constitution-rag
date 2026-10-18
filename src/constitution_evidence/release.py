@@ -62,6 +62,11 @@ def release_readiness(questions_path: Path, corpus_manifest_path: Path,
         reasons.append("Final model or prompt hashes are missing")
     elif systems["fulltext"].get("context_mode") != "fulltext" or systems["bm25_rag"].get("strategy") != "bm25":
         reasons.append("Full-text and BM25 baselines are not defined as planned")
+    else:
+        from .campaign import prompt_hash
+        if len({systems[name].get("model") for name in FINAL_SYSTEMS}) != 1 or any(
+                systems[name].get("prompt_sha256") != prompt_hash() for name in FINAL_SYSTEMS):
+            reasons.append("Final systems must use one model and the current Qwen prompt")
     if not analysis_plan_path.exists():
         reasons.append("Analysis plan is missing")
     lock_path = repo_root / "uv.lock"
@@ -115,6 +120,9 @@ def assert_reserved_test_ready(release_manifest_path: Path, questions_path: Path
                                      stderr=subprocess.DEVNULL).strip()
     if commit != frozen.get("commit"):
         raise ValueError("Code revision changed after release freeze")
+    if subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True,
+                               stderr=subprocess.DEVNULL).strip():
+        raise ValueError("Working tree changed after release freeze")
     return frozen
 
 

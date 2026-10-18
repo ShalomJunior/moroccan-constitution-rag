@@ -24,7 +24,8 @@ RAW_SCHEMA = {
 }
 
 class LocalGenerator:
-    def __init__(self, base_url: str | None = None, model: str | None = None, max_context_chars: int = 8000, timeout: int = 180):
+    def __init__(self, base_url: str | None = None, model: str | None = None, max_context_chars: int = 8000, timeout: int = 180,
+                 require_token_preflight: bool = False):
         self.base_url = (base_url or os.getenv("LOCAL_LLM_URL") or "http://127.0.0.1:8080").rstrip("/")
         parsed = urlsplit(self.base_url)
         if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"} or parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
@@ -32,6 +33,34 @@ class LocalGenerator:
         self.model = model or os.getenv("LOCAL_MODEL_ID") or "Qwen3-1.7B"
         self.max_context_chars = max_context_chars
         self.timeout = timeout
+        self.require_token_preflight = require_token_preflight
+
+    def _json_request(self, path: str, payload: dict | None = None) -> dict:
+        request = Request(self.base_url + path,
+                          data=json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None,
+                          headers={"Content-Type": "application/json"}, method="POST" if payload is not None else "GET")
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                return json.load(response)
+        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+            raise GenerationError(f"local_preflight_unavailable: {exc}") from exc
+
+    def preflight(self, messages: list[dict], output_tokens: int = 768) -> dict:
+        """Count the actual llama.cpp chat template; never silently truncate full text."""
+        props = self._json_request("/props")
+        capacity = props.get("default_generation_settings", {}).get("n_ctx")
+        if not isinstance(capacity, int) or capacity <= 0:
+            raise GenerationError("local_preflight_unavailable: server did not report n_ctx")
+        rendered = self._json_request("/apply-template", {"messages": messages}).get("prompt")
+        if not isinstance(rendered, str):
+            raise GenerationError("local_preflight_unavailable: server did not render the chat template")
+        tokens = self._json_request("/tokenize", {"content": rendered, "add_special": False}).get("tokens")
+        if not isinstance(tokens, list):
+            raise GenerationError("local_preflight_unavailable: server did not count tokens")
+        required = len(tokens) + output_tokens + 128
+        if required > capacity:
+            raise GenerationError(f"budget_exceeded: need {required} tokens including output reserve, server n_ctx={capacity}")
+        return {"prompt_tokens": len(tokens), "required_tokens": required, "context_capacity": capacity}
 
     def generate(self, question: str, supplied: list[dict], manifest: dict) -> dict:
         if not question.strip() or len(question) > 2000 or not supplied:
@@ -54,6 +83,8 @@ class LocalGenerator:
         if not LOCAL_MODEL_SLOTS.acquire(blocking=False):
             raise GenerationError("local_provider_busy")
         try:
+            if self.require_token_preflight:
+                self.preflight(payload["messages"], payload["max_tokens"])
             for attempts in (1, 2):
                 try:
                     with urlopen(request, timeout=self.timeout) as response:

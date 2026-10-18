@@ -72,6 +72,11 @@ def _main(argv=None):
     p = sub.add_parser("test-preflight")
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
     p.add_argument("--release-manifest", type=Path, default=ROOT / "runs/release-candidate/manifest.json")
+    p = sub.add_parser("run-reserved-test")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
+    p.add_argument("--release-manifest", type=Path, default=ROOT / "runs/release-candidate/manifest.json")
+    p.add_argument("--systems", type=Path, default=ROOT / "configs/final_systems.json")
+    p.add_argument("--run-id", required=True)
     p = sub.add_parser("blind-packets")
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
     p.add_argument("--release-manifest", type=Path, default=ROOT / "runs/release-candidate/manifest.json")
@@ -123,6 +128,13 @@ def _main(argv=None):
         metadata = json.loads(manifest.read_text())
         if digest(passages.read_bytes()) != metadata["passages_hash"]:
             raise ValueError("Passages hash does not match the active manifest")
+        if args.context == "fulltext" and args.generator == "local":
+            from .local_generation import LocalGenerator
+            size = sum(len(row["canonical_text"]) + len(row["passage_id"]) + 5 for row in records) + 1
+            result = LocalGenerator(max_context_chars=size, require_token_preflight=True).generate(args.question, records, metadata)
+            result["decomposition"] = None
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
         if args.strategy == "bm25":
             engine = BM25(records)
         elif args.strategy == "dense":
@@ -146,8 +158,6 @@ def _main(argv=None):
             result = extractive_answer(hits, metadata)
             supplied = pack(hits, 12000)
         elif args.generator == "local":
-            if args.context == "fulltext":
-                raise ValueError("The local model's context is too small for the fulltext baseline")
             from .local_generation import LocalGenerator
             supplied = pack(hits, 7000)
             result = LocalGenerator().generate(args.question, supplied, metadata)
@@ -230,6 +240,17 @@ def _main(argv=None):
     elif args.command == "test-preflight":
         from .release import assert_reserved_test_ready
         result = assert_reserved_test_ready(args.release_manifest, args.questions, manifest)
+    elif args.command == "run-reserved-test":
+        from .release import assert_reserved_test_ready, run_reserved_test
+        from .campaign import build_runners
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.run_id):
+            raise ValueError("Invalid run ID")
+        frozen = assert_reserved_test_ready(args.release_manifest, args.questions, manifest)
+        if digest(args.systems.read_bytes()) != frozen["systems_sha256"]:
+            raise ValueError("System specification differs from the release freeze")
+        runners = build_runners(passages, manifest, args.systems, articles)
+        result = run_reserved_test(args.release_manifest, args.questions, manifest,
+                                   ROOT / "runs" / args.run_id, runners)
     elif args.command == "blind-packets":
         from .release import assert_reserved_test_ready
         from .judgments import prepare_blind_packets
