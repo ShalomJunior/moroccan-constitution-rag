@@ -8,4 +8,4 @@
 
 For each PR, record tests and any corpus, annotation, or benchmark impact. A changed source or correction creates a new corpus hash. Test questions and outputs must not guide prompt or model selection before the final freeze. Large PDFs, OCR language data, and generated runs stay out of Git; their URLs and hashes go in manifests.
 
-The local `develop` branch has been created. Create feature branches from `develop`. The planning directory and implementation are being added without rewriting `main` history.
+Create feature branches from `develop`.
