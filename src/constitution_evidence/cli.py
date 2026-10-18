@@ -80,6 +80,8 @@ def _main(argv=None):
     p.add_argument("--selection", type=Path, default=ROOT / "runs/validation-selection.json")
     p.add_argument("--systems", type=Path, default=ROOT / "configs/final_systems.json")
     p.add_argument("--output", type=Path, default=ROOT / "runs/release-candidate/manifest.json")
+    p = sub.add_parser("audit-questions")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
     p = sub.add_parser("test-preflight")
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
     p.add_argument("--release-manifest", type=Path, default=ROOT / "runs/release-candidate/manifest.json")
@@ -268,6 +270,9 @@ def _main(argv=None):
             raise ValueError("Run ID must be a simple name of at most 80 characters")
         result = run_calibration(args.questions, passages, manifest, ROOT / "runs" / args.run_id,
                                  max_new=args.max_new, pause_seconds=args.pause_seconds)
+    elif args.command == "audit-questions":
+        from .question_audit import audit_questions
+        result = audit_questions(args.questions, passages, json.loads(manifest.read_text())["corpus_hash"])
     elif args.command == "release-readiness":
         from .release import release_readiness
         result = release_readiness(args.questions, manifest, args.selection, args.systems)

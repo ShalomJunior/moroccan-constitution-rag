@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 from .store import ROOT, digest, read_jsonl, write_jsonl
 from .evidence import validate_answer
+from .question_audit import audit_questions
 
 EXPECTED_FAMILIES = {"dev": 45, "validation": 45, "test": 90}
 FINAL_SYSTEMS = ("fulltext", "bm25_rag", "selected_pipeline")
@@ -24,6 +25,10 @@ def release_readiness(questions_path: Path, corpus_manifest_path: Path,
     reasons = []
     corpus = json.loads(corpus_manifest_path.read_text())
     questions = read_jsonl(questions_path) if questions_path.exists() else []
+    question_audit = audit_questions(questions_path, corpus_manifest_path.parent / "passages.jsonl",
+                                     corpus.get("corpus_hash"))
+    if question_audit["status"] != "structurally_complete":
+        reasons.append("Question benchmark structural audit is incomplete")
     if corpus.get("review_status") != "reviewed":
         reasons.append("Corpus is not reviewed")
     review_path = repo_root / "data/annotations/corpus-review.jsonl"
@@ -98,7 +103,7 @@ def release_readiness(questions_path: Path, corpus_manifest_path: Path,
             "analysis_plan_sha256": digest(analysis_plan_path.read_bytes()) if analysis_plan_path.exists() else None,
             "analysis_plan_path": _repo_relative(analysis_plan_path, repo_root),
             "lock_sha256": digest(lock_path.read_bytes()) if lock_path.exists() else None,
-            "family_counts": counts}
+            "family_counts": counts, "question_audit": question_audit}
 
 
 def assert_reserved_test_ready(release_manifest_path: Path, questions_path: Path,
