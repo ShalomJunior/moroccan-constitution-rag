@@ -20,7 +20,7 @@ constitution-evidence ask 'Que dit l’article 20 sur le droit à la vie ?'
 python -m unittest discover -s tests -v
 ```
 
-For the optional local API: `pip install -e '.[api]'` then `constitution-evidence serve`. Install `pip install -e '.[api,dense]'` to enable dense, hybrid, and reranked retrieval in the interface. Endpoints: `POST /ask`, `GET /sources/{passage_id}`, `GET /health`, `GET /version`.
+For a locked optional local API installation, use `uv sync --frozen --extra api --no-dev` then `uv run --frozen --extra api constitution-evidence serve`. Add `--extra dense` to both commands to install dense, hybrid, and reranked retrieval. Endpoints: `POST /ask`, `GET /sources/{passage_id}`, `GET /health`, `GET /version`.
 
 The downloaded PDF, OCR model, generated text, and runs are ignored by Git. The PDF source, edition, hash, and extraction status are recorded in `data/processed/manifest.json` after ingestion. This project does not claim evaluated factual reliability until the OCR and benchmark have been reviewed. See [scope](docs/project-scope.md), [limitations](docs/limitations.md), and [Gitflow](docs/gitflow.md).
 
@@ -41,6 +41,8 @@ Reference expansion is optional: select “Suivre les renvois” in the interfac
 For questions needing several pieces of evidence, use `--decompose` or `"decompose":true` in `POST /ask`. This runs the original query plus at most two focused searches and returns a trace of the plan and supplied passages. Explicitly named articles work without a model; conceptual decomposition uses the local Qwen server even when the answer mode is extractive. See [multi-evidence search](docs/multi-evidence.md).
 
 The API and browser also support short French follow-ups such as “Que prévoit cet article ?” using a bounded, stateless article-number history. Use **Nouveau sujet** to clear browser history. See [dialogue and operations](docs/dialogue-and-operations.md). The [French robustness report](reports/french-robustness.md) compares provisional direct, paraphrased, and typo questions; its results are development diagnostics over unreviewed OCR.
+
+The next experiment commands are `compare-runs`, `select-validation`, and `oracle-run`; their data gates and limits are in [experiments](docs/experiments.md). The [demo threat model](docs/demo-threat-model.md) and [installation status](reports/installation-and-usability.md) describe the current offline checks.
 
 ## Local open model
 

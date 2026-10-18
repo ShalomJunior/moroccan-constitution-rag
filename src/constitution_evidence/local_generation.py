@@ -1,6 +1,7 @@
 """Local Qwen via llama.cpp's OpenAI-compatible server."""
 import json
 import os
+from threading import BoundedSemaphore
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -8,6 +9,7 @@ from .evidence import validate_answer
 from .generation import INSTRUCTIONS, PROMPT_VERSION, GenerationError
 
 LOCAL_PROMPT_VERSION = PROMPT_VERSION + "-qwen-no-think-v1"
+LOCAL_MODEL_SLOTS = BoundedSemaphore(2)
 RAW_SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
@@ -32,7 +34,7 @@ class LocalGenerator:
         self.timeout = timeout
 
     def generate(self, question: str, supplied: list[dict], manifest: dict) -> dict:
-        if not question.strip() or not supplied:
+        if not question.strip() or len(question) > 2000 or not supplied:
             raise ValueError("Question and source passages are required")
         context = "\n\n".join(f"[{p['passage_id']}]\n{p['canonical_text']}" for p in supplied)
         if len(context) > self.max_context_chars:
@@ -49,18 +51,22 @@ class LocalGenerator:
         }
         request = Request(self.base_url + "/v1/chat/completions", data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                           headers={"Content-Type": "application/json"}, method="POST")
-        attempts = 0
-        for attempts in (1, 2):
-            try:
-                with urlopen(request, timeout=self.timeout) as response:
-                    result = json.load(response)
-                break
-            except HTTPError as exc:
-                if attempts == 2 or exc.code not in {429, 502, 503, 504}:
-                    raise GenerationError(f"local_provider_unavailable: HTTP {exc.code}") from exc
-            except (URLError, TimeoutError) as exc:
-                if attempts == 2:
-                    raise GenerationError(f"local_provider_unavailable: {exc}") from exc
+        if not LOCAL_MODEL_SLOTS.acquire(blocking=False):
+            raise GenerationError("local_provider_busy")
+        try:
+            for attempts in (1, 2):
+                try:
+                    with urlopen(request, timeout=self.timeout) as response:
+                        result = json.load(response)
+                    break
+                except HTTPError as exc:
+                    if attempts == 2 or exc.code not in {429, 502, 503, 504}:
+                        raise GenerationError(f"local_provider_unavailable: HTTP {exc.code}") from exc
+                except (URLError, TimeoutError) as exc:
+                    if attempts == 2:
+                        raise GenerationError(f"local_provider_unavailable: {exc}") from exc
+        finally:
+            LOCAL_MODEL_SLOTS.release()
         try:
             raw = json.loads(result["choices"][0]["message"]["content"])
             if raw["status"] not in RAW_SCHEMA["properties"]["status"]["enum"]:

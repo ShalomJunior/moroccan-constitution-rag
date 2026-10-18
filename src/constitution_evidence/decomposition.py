@@ -5,7 +5,7 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from .generation import GenerationError
-from .local_generation import LocalGenerator
+from .local_generation import LocalGenerator, LOCAL_MODEL_SLOTS
 from .retrieval import ARTICLE_LIST, ARTICLE_QUERY, explicit_article_numbers, rrf
 
 PLAN_VERSION = "fr-multi-evidence-v1"
@@ -36,6 +36,8 @@ class LocalDecomposer:
         self.timeout = timeout
 
     def plan(self, question: str) -> tuple[list[str], dict | None]:
+        if not question.strip() or len(question) > 2000:
+            raise ValueError("Question length must be between 1 and 2000 characters")
         payload = {
             "model": self.model,
             "messages": [
@@ -48,11 +50,16 @@ class LocalDecomposer:
         request = Request(self.base_url + "/v1/chat/completions",
                           data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                           headers={"Content-Type": "application/json"}, method="POST")
+        if not LOCAL_MODEL_SLOTS.acquire(blocking=False):
+            raise GenerationError("local_provider_busy")
         try:
-            with urlopen(request, timeout=self.timeout) as response:
-                result = json.load(response)
-        except (HTTPError, URLError, TimeoutError) as exc:
-            raise GenerationError(f"local_planner_unavailable: {exc}") from exc
+            try:
+                with urlopen(request, timeout=self.timeout) as response:
+                    result = json.load(response)
+            except (HTTPError, URLError, TimeoutError) as exc:
+                raise GenerationError(f"local_planner_unavailable: {exc}") from exc
+        finally:
+            LOCAL_MODEL_SLOTS.release()
         try:
             raw = json.loads(result["choices"][0]["message"]["content"])
             subquestions = raw["subquestions"]

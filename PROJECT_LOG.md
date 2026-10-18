@@ -1,5 +1,11 @@
 # Project log
 
+## 2026-10-18 — Demo controls and experiment gates
+
+- Added bounded concurrent local-model calls, input limits, safety fixtures, and a short demo threat model. Structural citation checks reject forged quotes; semantic support remains unverified.
+- CI now installs from the committed uv lock. Local lock validation and 35 offline tests passed. A fresh-clone installation and volunteer usability tests remain pending.
+- Added paired saved-run comparisons, a reviewed-validation retrieval selection policy, and a resumable oracle generator that never passes answer labels to the model. The current provisional labels correctly fail the validation and oracle gates; no final selection or oracle result is claimed.
+
 ## 2026-10-18 — French robustness and short dialogue
 
 - Added 45 provisional French query variants across 15 development families and compared BM25S, FastEmbed + FAISS, and hybrid retrieval. Recall@10 was 44/45, 41/45, and 44/45 respectively; see `reports/french-robustness.md` for variant and family failures. These are author labels over unreviewed OCR, not release metrics.

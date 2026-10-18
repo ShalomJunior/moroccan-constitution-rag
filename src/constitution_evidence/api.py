@@ -129,7 +129,7 @@ def ask(request: AskRequest):
         try:
             hits, decomposition = retrieve_multi(query, engine, request.top_k)
         except GenerationError as exc:
-            raise HTTPException(503, str(exc)) from exc
+            raise HTTPException(429 if str(exc) == "local_provider_busy" else 503, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
     else:
@@ -137,10 +137,12 @@ def ask(request: AskRequest):
     if request.generator == "local" and hits:
         from .local_generation import LocalGenerator, GenerationError
         context = pack(hits, 7000)
+        if not context:
+            raise HTTPException(422, "No retrieved passage fits the local model context budget")
         try:
             answer = LocalGenerator().generate(query, context, manifest)
         except GenerationError as exc:
-            raise HTTPException(503, str(exc)) from exc
+            raise HTTPException(429 if str(exc) == "local_provider_busy" else 503, str(exc)) from exc
     else:
         context = pack(hits, 12000)
         answer = extractive_answer(hits, manifest)

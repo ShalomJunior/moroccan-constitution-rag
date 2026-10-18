@@ -10,6 +10,13 @@ from .retrieval import BM25, Dense, Hybrid
 from .store import ROOT, corpus_paths, read_jsonl, digest
 
 def main(argv=None):
+    try:
+        return _main(argv)
+    except (ValueError, FileNotFoundError) as exc:
+        raise SystemExit(f"error: {exc}") from exc
+
+
+def _main(argv=None):
     parser = argparse.ArgumentParser(prog="constitution-evidence")
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("ingest")
@@ -35,6 +42,17 @@ def main(argv=None):
     p.add_argument("--context-chars", type=int, default=7000)
     p.add_argument("--strategy", choices=["bm25", "dense", "hybrid", "hybrid-rerank"], default="bm25")
     p = sub.add_parser("report")
+    p.add_argument("--run-id", required=True)
+    p = sub.add_parser("compare-runs")
+    p.add_argument("left")
+    p.add_argument("right")
+    p = sub.add_parser("select-validation")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
+    p.add_argument("--policy", type=Path, default=ROOT / "configs/selection_policy.json")
+    p.add_argument("run_ids", nargs="+")
+    p = sub.add_parser("oracle-run")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
+    p.add_argument("--split", choices=["dev", "validation"], default="dev")
     p.add_argument("--run-id", required=True)
     sub.add_parser("serve")
     args = parser.parse_args(argv)
@@ -63,6 +81,8 @@ def main(argv=None):
         result = write_audit_html(records, metadata, args.output, ROOT / config["pdf_path"],
                                   ROOT / "data/processed/pages" / metadata["page_cache_key"])
     elif args.command == "ask":
+        if not args.question.strip() or len(args.question) > 2000 or not 1 <= args.top_k <= 20:
+            raise ValueError("Question must be 1–2000 characters and top-k must be 1–20")
         if args.decompose and args.context == "fulltext":
             raise ValueError("Decomposition applies only to retrieved context")
         records = read_jsonl(passages)
@@ -113,6 +133,25 @@ def main(argv=None):
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.run_id):
             raise ValueError("Run ID must be a simple name of at most 80 characters")
         result = report(ROOT / "runs" / args.run_id)
+    elif args.command == "compare-runs":
+        from .experiments import compare_runs
+        for run_id in (args.left, args.right):
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", run_id):
+                raise ValueError("Invalid run ID")
+        result = compare_runs(ROOT / "runs" / args.left, ROOT / "runs" / args.right)
+    elif args.command == "select-validation":
+        from .experiments import select_validation
+        if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", item) for item in args.run_ids):
+            raise ValueError("Invalid run ID")
+        result = select_validation(args.questions, [ROOT / "runs" / item for item in args.run_ids], args.policy)
+    elif args.command == "oracle-run":
+        from .experiments import run_oracle
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.run_id):
+            raise ValueError("Invalid run ID")
+        metadata = json.loads(manifest.read_text())
+        if digest(passages.read_bytes()) != metadata["passages_hash"]:
+            raise ValueError("Passages hash does not match the active manifest")
+        result = run_oracle(args.questions, passages, metadata, ROOT / "runs" / args.run_id, args.split)
     else:
         try:
             import uvicorn

@@ -26,6 +26,14 @@ class LocalRetryTests(unittest.TestCase):
                 LocalGenerator().generate("Question ?", [passage], {})
         self.assertEqual(opener.call_count, 1)
 
+    def test_busy_local_provider_fails_without_call(self):
+        passage = {"passage_id": "p1", "canonical_text": "Texte."}
+        with patch("constitution_evidence.local_generation.LOCAL_MODEL_SLOTS.acquire", return_value=False):
+            with patch("constitution_evidence.local_generation.urlopen") as opener:
+                with self.assertRaisesRegex(GenerationError, "local_provider_busy"):
+                    LocalGenerator().generate("Question ?", [passage], {})
+        opener.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
