@@ -1,4 +1,4 @@
-# Demo threat model (J29)
+# Demo threat model
 
 The local demo accepts a browser question, retrieves OCR passages, optionally calls a loopback Qwen server, and returns source-linked text. The relevant untrusted inputs are user questions, OCR text, model output, and source IDs. No retrieved text is executed as a command or used as a URL for server-side requests. The model has no tools. API input limits are 2,000 question characters, 1–20 results, and three short history entries; CLI asks use the same question and result limits. Local model requests are limited to two simultaneous calls per server process, including planning calls. A busy process returns HTTP 429. This is process-local capacity control, not a distributed rate limit.
 
