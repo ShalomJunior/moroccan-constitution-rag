@@ -11,7 +11,8 @@ from unittest.mock import patch
 from constitution_evidence.generation import GenerationError
 from constitution_evidence.store import digest, read_jsonl, write_jsonl
 from scripts.kaggle_final_runtime import (
-    MODEL_REVISION, PREFILL_CHUNK_TOKENS, ROPE_SCALING, TransformersGenerator, seed_previous_results,
+    MODEL_REVISION, PREFILL_CHUNK_TOKENS, ROPE_SCALING, TransformersGenerator,
+    load_model, require_dual_gpu, seed_previous_results,
 )
 
 
@@ -98,13 +99,13 @@ class KaggleFinalTests(unittest.TestCase):
         self.assertNotIn("cache_implementation", model.last_kwargs)
         self.assertEqual(model.last_kwargs["attention_mask"].shape, (1, 100))
 
-    def test_full_text_uses_offloaded_cache(self):
+    def test_short_full_text_uses_dynamic_cache(self):
         model = Model()
         generator = TransformersGenerator(Tokenizer(), model, model_revision=MODEL_REVISION,
                                           require_token_preflight=True)
         with patch.dict(sys.modules, {"torch": self.torch}):
             generator.generate("Que dit l'article 20 ?", [self.passage], self.manifest)
-        self.assertEqual(model.last_kwargs["cache_implementation"], "offloaded")
+        self.assertNotIn("cache_implementation", model.last_kwargs)
 
     def test_full_text_prefills_in_bounded_chunks(self):
         model = Model()
@@ -119,6 +120,44 @@ class KaggleFinalTests(unittest.TestCase):
         self.assertEqual(model.last_kwargs["attention_mask"].shape, (1, tokens))
         self.assertEqual(model.last_kwargs["input_ids"].shape, (1, 1))
         self.assertIn("past_key_values", model.last_kwargs)
+        self.assertFalse(model.last_kwargs["past_key_values"]["offloading"])
+
+    def test_two_gpu_memory_check_rejects_single_gpu(self):
+        cuda = types.SimpleNamespace(is_available=lambda: True, device_count=lambda: 1)
+        with self.assertRaisesRegex(RuntimeError, "T4 x2"):
+            require_dual_gpu(types.SimpleNamespace(cuda=cuda))
+
+    def test_model_load_balances_weights_across_two_gpus(self):
+        cuda = types.SimpleNamespace(is_available=lambda: True, device_count=lambda: 2,
+                                     mem_get_info=lambda index: (12 * 1024**3, 15 * 1024**3),
+                                     get_device_name=lambda index: f"T4-{index}")
+        fake_torch = types.ModuleType("torch")
+        fake_torch.cuda = cuda
+        fake_torch.float16 = "float16"
+        fake_torch.__version__ = "test"
+        calls = {}
+        loaded = Model()
+        loaded.hf_device_map = {"model.layers.0": 0, "model.layers.1": 1}
+        loaded.eval = lambda: None
+        fake_transformers = types.ModuleType("transformers")
+        fake_transformers.__version__ = "4.57.6"
+        fake_transformers.AutoTokenizer = types.SimpleNamespace(from_pretrained=lambda *args, **kwargs: Tokenizer())
+        fake_transformers.AutoConfig = types.SimpleNamespace(
+            from_pretrained=lambda *args, **kwargs: types.SimpleNamespace())
+        fake_transformers.BitsAndBytesConfig = lambda **kwargs: kwargs
+        def from_pretrained(*args, **kwargs):
+            calls.update(kwargs)
+            return loaded
+        fake_transformers.AutoModelForCausalLM = types.SimpleNamespace(from_pretrained=from_pretrained)
+        fake_hub = types.ModuleType("huggingface_hub")
+        fake_hub.snapshot_download = lambda **kwargs: "/snapshot"
+        with patch.dict(sys.modules, {"torch": fake_torch, "transformers": fake_transformers,
+                                      "huggingface_hub": fake_hub}):
+            _, model, provenance = load_model()
+        self.assertIs(model, loaded)
+        self.assertEqual(calls["device_map"], "balanced")
+        self.assertEqual(calls["max_memory"], {0: "13GiB", 1: "13GiB"})
+        self.assertEqual(provenance["gpus"], ["T4-0", "T4-1"])
 
     def test_full_text_budget_fails_before_generation(self):
         model = Model()
