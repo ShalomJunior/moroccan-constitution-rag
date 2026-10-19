@@ -93,7 +93,10 @@ def build(output: Path, previous_results: Path | None = None) -> dict:
             source_hash = previous_root / "source-archive-sha256.txt"
             source_hash.write_text(sha256(previous_results) + "\n")
             private_files.append(source_hash.relative_to(checkout).as_posix())
-            from scripts.kaggle_final_runtime import seed_previous_results
+            if __package__:
+                from .kaggle_final_runtime import seed_previous_results
+            else:
+                from kaggle_final_runtime import seed_previous_results
             with tempfile.TemporaryDirectory(prefix="constitution-recovery-check-") as check_dir:
                 seed_previous_results(checkout, Path(check_dir) / "run")
         git_buffer = io.BytesIO()
