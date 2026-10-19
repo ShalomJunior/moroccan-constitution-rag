@@ -26,6 +26,19 @@ class ReproductionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "do not match"):
                 reproduce_retrieval(questions, passages, [run])
 
+    def test_unanswerable_question_with_empty_evidence_reproduces(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            questions, passages, run = root / "questions.jsonl", root / "passages.jsonl", root / "run"
+            write_jsonl(questions, [{"question_id": "q1", "family_id": "f1", "split": "validation",
+                                     "question": "Quel est le taux actuel ?", "relevant_articles": [],
+                                     "acceptable_evidence_sets": [], "relevant_spans": []}])
+            write_jsonl(passages, [{"passage_id": "p1", "article_number": 20, "paragraph_index": 1,
+                                    "canonical_text": "Le droit à la vie.", "text_hash": "hash"}])
+            evaluate(questions, passages, "validation", run, k=1)
+            result = reproduce_retrieval(questions, passages, [run])
+            self.assertEqual(result["runs"]["run"]["questions"], 1)
+
     def test_publication_audit_flags_tracked_private_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
