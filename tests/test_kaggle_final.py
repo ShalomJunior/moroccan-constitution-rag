@@ -1,5 +1,6 @@
 import contextlib
 import json
+import shutil
 import sys
 import tempfile
 import types
@@ -9,7 +10,9 @@ from unittest.mock import patch
 
 from constitution_evidence.generation import GenerationError
 from constitution_evidence.store import digest, read_jsonl, write_jsonl
-from scripts.kaggle_final_runtime import MODEL_REVISION, ROPE_SCALING, TransformersGenerator, seed_previous_results
+from scripts.kaggle_final_runtime import (
+    MODEL_REVISION, PREFILL_CHUNK_TOKENS, ROPE_SCALING, TransformersGenerator, seed_previous_results,
+)
 
 
 class Tensor:
@@ -17,6 +20,12 @@ class Tensor:
         self.shape = (1, tokens)
 
     def to(self, device):
+        return self
+
+    def __getitem__(self, key):
+        if isinstance(key, tuple) and isinstance(key[1], slice):
+            start, stop, step = key[1].indices(self.shape[-1])
+            return Tensor(len(range(start, stop, step)))
         return self
 
 
@@ -50,10 +59,16 @@ class Tokenizer:
 
 class Model:
     device = "cpu"
+    config = object()
 
     def __init__(self):
         self.calls = 0
         self.last_kwargs = None
+        self.forward_chunks = []
+
+    def __call__(self, **kwargs):
+        self.forward_chunks.append((kwargs["input_ids"].shape[-1], kwargs["attention_mask"].shape[-1]))
+        return object()
 
     def generate(self, *args, **kwargs):
         self.calls += 1
@@ -68,6 +83,7 @@ class KaggleFinalTests(unittest.TestCase):
         self.manifest = {"source_url": "https://example.org/constitution.pdf", "review_status": "reviewed"}
         self.torch = types.ModuleType("torch")
         self.torch.inference_mode = contextlib.nullcontext
+        self.torch.ones_like = lambda tensor: Tensor(tensor.shape[-1])
 
     def test_answer_uses_pinned_model_and_validated_source_quote(self):
         tokenizer, model = Tokenizer(), Model()
@@ -80,6 +96,7 @@ class KaggleFinalTests(unittest.TestCase):
         self.assertEqual(model.calls, 1)
         self.assertIn("Schéma JSON requis", tokenizer.messages[1]["content"])
         self.assertNotIn("cache_implementation", model.last_kwargs)
+        self.assertEqual(model.last_kwargs["attention_mask"].shape, (1, 100))
 
     def test_full_text_uses_offloaded_cache(self):
         model = Model()
@@ -88,6 +105,20 @@ class KaggleFinalTests(unittest.TestCase):
         with patch.dict(sys.modules, {"torch": self.torch}):
             generator.generate("Que dit l'article 20 ?", [self.passage], self.manifest)
         self.assertEqual(model.last_kwargs["cache_implementation"], "offloaded")
+
+    def test_full_text_prefills_in_bounded_chunks(self):
+        model = Model()
+        tokens = PREFILL_CHUNK_TOKENS * 2 + 13
+        generator = TransformersGenerator(Tokenizer(tokens=tokens), model, model_revision=MODEL_REVISION,
+                                          require_token_preflight=True)
+        fake_transformers = types.ModuleType("transformers")
+        fake_transformers.DynamicCache = lambda **kwargs: kwargs
+        with patch.dict(sys.modules, {"torch": self.torch, "transformers": fake_transformers}):
+            generator.generate("Que dit l'article 20 ?", [self.passage], self.manifest)
+        self.assertEqual(model.forward_chunks, [(512, 512), (512, 1024), (12, 1036)])
+        self.assertEqual(model.last_kwargs["attention_mask"].shape, (1, tokens))
+        self.assertEqual(model.last_kwargs["input_ids"].shape, (1, 1))
+        self.assertIn("past_key_values", model.last_kwargs)
 
     def test_full_text_budget_fails_before_generation(self):
         model = Model()
@@ -124,6 +155,9 @@ class KaggleFinalTests(unittest.TestCase):
                    "error": None}
             for system in ("bm25_rag", "selected_pipeline"):
                 write_jsonl(prior_run / system / "answers.jsonl", [row])
+            write_jsonl(prior_run / "fulltext/answers.jsonl",
+                        [{**row, "answer": None,
+                          "error": {"type": "OutOfMemoryError", "message": "CUDA OOM"}}])
             (prior / "source-archive-sha256.txt").write_text("archive-hash\n")
             output = root / "runs/final-reserved-qwen4b-transformers"
             lineage = seed_previous_results(root, output)
@@ -131,6 +165,11 @@ class KaggleFinalTests(unittest.TestCase):
             self.assertFalse((output / "fulltext/answers.jsonl").exists())
             self.assertEqual(read_jsonl(output / "bm25_rag/answers.jsonl"), [row])
             self.assertEqual(seed_previous_results(root, output), lineage)
+            shutil.rmtree(output)
+            write_jsonl(prior_run / "fulltext/answers.jsonl", [row])
+            second = seed_previous_results(root, output)
+            self.assertEqual(second["carried_systems"]["fulltext"], 1)
+            self.assertEqual(read_jsonl(output / "fulltext/answers.jsonl"), [row])
 
 
 if __name__ == "__main__":

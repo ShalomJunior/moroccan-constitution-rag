@@ -82,7 +82,10 @@ def build(output: Path, previous_results: Path | None = None) -> dict:
                 found = set(source.namelist())
                 if not expected <= found:
                     raise ValueError(f"Previous results lack required files: {sorted(expected - found)}")
-                allowed = expected | {"runs/final-reserved-qwen4b-transformers/fulltext/answers.jsonl"}
+                allowed = expected | {
+                    "runs/final-reserved-qwen4b-transformers/fulltext/answers.jsonl",
+                    "runs/final-reserved-qwen4b-transformers/recovery-lineage.json",
+                }
                 if found != allowed:
                     raise ValueError("Previous results have unexpected files")
                 for name in sorted(found):
