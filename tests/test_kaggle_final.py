@@ -1,5 +1,7 @@
 import contextlib
 import json
+import os
+import runpy
 import shutil
 import sys
 import tempfile
@@ -175,8 +177,23 @@ class KaggleFinalTests(unittest.TestCase):
         command = types.SimpleNamespace(run=lambda *args, **kwargs: calls.append((args, kwargs)))
         exec(cell, {"subprocess": command, "sys": types.SimpleNamespace(executable="python"),
                     "ROOT": root})
-        self.assertEqual(calls, [((["python", "-m", "scripts.kaggle_final_runtime", str(root)],),
+        self.assertEqual(calls, [((["python", "-m", "scripts.kaggle_final_worker", str(root)],),
                                   {"check": True, "cwd": root})])
+
+    def test_worker_disables_xla_gpu_claim_before_importing_runtime(self):
+        observed = {}
+        fake_runtime = types.ModuleType("scripts.kaggle_final_runtime")
+        fake_runtime.execute = lambda root: None
+        with patch.dict(os.environ, {"JAX_PLATFORMS": "cuda",
+                                     "XLA_PYTHON_CLIENT_PREALLOCATE": "true",
+                                     "USE_FLAX": "1", "USE_TF": "1"}), patch.dict(
+                                         sys.modules, {"scripts.kaggle_final_runtime": fake_runtime}):
+            runpy.run_module("scripts.kaggle_final_worker", run_name="test_worker")
+            observed.update({key: os.environ[key] for key in (
+                "JAX_PLATFORMS", "XLA_PYTHON_CLIENT_PREALLOCATE", "USE_FLAX", "USE_TF")})
+        self.assertEqual(observed, {"JAX_PLATFORMS": "cpu",
+                                    "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+                                    "USE_FLAX": "0", "USE_TF": "0"})
 
     def test_full_text_budget_fails_before_generation(self):
         model = Model()
