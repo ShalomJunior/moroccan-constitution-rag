@@ -1,6 +1,8 @@
 """Package a clean release checkout and private, frozen inputs for Kaggle."""
 import argparse
+import base64
 import hashlib
+import io
 import json
 import shutil
 import subprocess
@@ -70,14 +72,17 @@ def build(output: Path) -> dict:
             destination = checkout / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, destination)
+        git_buffer = io.BytesIO()
+        with tarfile.open(fileobj=git_buffer, mode="w:gz") as archive:
+            archive.add(checkout / ".git", arcname=".git", recursive=True)
+        git_metadata = git_buffer.getvalue()
         marker = {"commit": commit, "release_sha256": sha256(release),
                   "questions_sha256": sha256(questions),
-                  "files": {name: sha256(ROOT / name) for name in private_files}}
+                  "files": {name: sha256(ROOT / name) for name in private_files},
+                  "git_metadata_sha256": hashlib.sha256(git_metadata).hexdigest(),
+                  "git_metadata_b64": base64.b64encode(git_metadata).decode("ascii")}
         marker_path = checkout / "runs/kaggle-bundle.json"
         marker_path.write_text(json.dumps(marker, ensure_ascii=False, indent=2) + "\n")
-        metadata_path = checkout / "runs/git-metadata.tar.gz"
-        with tarfile.open(metadata_path, "w:gz") as archive:
-            archive.add(checkout / ".git", arcname=".git", recursive=True)
         if git("status", "--porcelain", cwd=checkout):
             raise ValueError("Private bundle files are not ignored by Git")
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
