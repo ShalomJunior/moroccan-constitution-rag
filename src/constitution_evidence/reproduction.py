@@ -32,7 +32,8 @@ def reproduce_retrieval(questions_path: Path, passages_path: Path, run_dirs: lis
             except KeyError as exc:
                 raise ValueError("Saved run references an unknown passage") from exc
             actual = score_retrieval(hits, q.get("relevant_articles", []), manifest["article_k"],
-                                     q.get("acceptable_evidence_sets"), q.get("relevant_spans"), context)
+                                     q.get("acceptable_evidence_sets") or None,
+                                     q.get("relevant_spans") or None, context)
             if actual != row["metrics"]:
                 raise ValueError(f"Saved metrics do not match hits and labels: {row['question_id']}")
         output[run_dir.name] = report(run_dir)
