@@ -21,6 +21,7 @@ ROPE_SCALING = {"rope_type": "yarn", "factor": 2.0,
                 "original_max_position_embeddings": 32768}
 MAX_NEW_TOKENS = 768
 TOKEN_RESERVE = 128
+PREFILL_CHUNK_TOKENS = 512
 RUN_ID = "final-reserved-qwen4b-transformers"
 
 
@@ -70,12 +71,19 @@ class TransformersGenerator:
         required = prompt_tokens + MAX_NEW_TOKENS + TOKEN_RESERVE
         if required > TOKEN_LIMIT:
             raise GenerationError(f"budget_exceeded: need {required} tokens; context capacity={TOKEN_LIMIT}")
+        attention_mask = torch.ones_like(input_ids)
         with torch.inference_mode():
-            cache = {"cache_implementation": "offloaded"} if self.require_token_preflight else {}
-            output = self.backend.generate(
-                input_ids.to(self.backend.device), max_new_tokens=MAX_NEW_TOKENS,
-                do_sample=False, pad_token_id=self.tokenizer.eos_token_id, use_cache=True, **cache)
-        generated = output[0, prompt_tokens:]
+            if self.require_token_preflight and prompt_tokens > PREFILL_CHUNK_TOKENS:
+                generated = self._generate_chunked(input_ids, attention_mask)
+                cache_strategy = "offloaded-chunked"
+            else:
+                cache = {"cache_implementation": "offloaded"} if self.require_token_preflight else {}
+                output = self.backend.generate(
+                    input_ids.to(self.backend.device), attention_mask=attention_mask.to(self.backend.device),
+                    max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
+                    pad_token_id=self.tokenizer.eos_token_id, use_cache=True, **cache)
+                generated = output[0, prompt_tokens:]
+                cache_strategy = "offloaded" if self.require_token_preflight else "dynamic"
         content = self.tokenizer.decode(generated, skip_special_tokens=True)
         try:
             raw = json.loads(content)
@@ -86,10 +94,29 @@ class TransformersGenerator:
             {"prompt_tokens": prompt_tokens, "completion_tokens": int(generated.numel()),
              "model_id": MODEL_ID, "model_revision": self.model_revision,
              "quantization": "bitsandbytes-nf4",
-             "cache_implementation": "offloaded" if self.require_token_preflight else "dynamic"})
+             "cache_implementation": cache_strategy})
         result["model_id"] = MODEL_ID
         result["model_revision"] = self.model_revision
         return result
+
+    def _generate_chunked(self, input_ids, attention_mask):
+        """Prefill the same prompt in bounded forward passes, then decode with HF generate."""
+        from transformers import DynamicCache
+
+        device = self.backend.device
+        input_ids = input_ids.to(device)
+        attention_mask = attention_mask.to(device)
+        cache = DynamicCache(config=self.backend.config, offloading=True)
+        prompt_tokens = int(input_ids.shape[-1])
+        for start in range(0, prompt_tokens - 1, PREFILL_CHUNK_TOKENS):
+            end = min(start + PREFILL_CHUNK_TOKENS, prompt_tokens - 1)
+            self.backend(input_ids=input_ids[:, start:end], attention_mask=attention_mask[:, :end],
+                         past_key_values=cache, use_cache=True, logits_to_keep=1)
+        output = self.backend.generate(
+            input_ids=input_ids[:, -1:], attention_mask=attention_mask,
+            past_key_values=cache, max_new_tokens=MAX_NEW_TOKENS,
+            do_sample=False, pad_token_id=self.tokenizer.eos_token_id, use_cache=True)
+        return output[0, 1:]
 
 
 def load_model():
@@ -115,7 +142,8 @@ def load_model():
     model.eval()
     provenance = {"model_id": MODEL_ID, "model_revision": MODEL_REVISION,
                   "quantization": "bitsandbytes-nf4", "context_capacity_tokens": TOKEN_LIMIT,
-                  "fulltext_cache_implementation": "offloaded",
+                  "fulltext_cache_implementation": "offloaded-chunked",
+                  "prefill_chunk_tokens": PREFILL_CHUNK_TOKENS,
                   "rope_scaling": ROPE_SCALING,
                   "transformers_version": transformers.__version__, "torch_version": torch.__version__,
                   "gpu": torch.cuda.get_device_name(0)}
@@ -156,6 +184,18 @@ def seed_previous_results(root: Path, output: Path) -> dict | None:
                 row.get("family_id") != question["family_id"] for row, question in zip(rows, questions)):
             raise ValueError(f"Previous {system} answers are incomplete or out of order")
         copied[system] = rows
+    previous_fulltext = prior_run / "fulltext/answers.jsonl"
+    if previous_fulltext.exists():
+        rows = read_jsonl(previous_fulltext)
+        by_id = {row.get("question_id"): row for row in rows}
+        families = {q["question_id"]: q["family_id"] for q in questions}
+        if (len(by_id) != len(rows) or not set(by_id) <= set(question_ids) or
+                any(row.get("family_id") != families[qid] for qid, row in by_id.items())):
+            raise ValueError("Previous full-text answers contain unknown or duplicate questions")
+        successful = [by_id[qid] for qid in question_ids
+                      if qid in by_id and by_id[qid].get("error") is None and by_id[qid].get("answer")]
+        if successful:
+            copied["fulltext"] = successful
     expected = {"release_sha256": digest(current_release_path.read_bytes()),
                 "questions_sha256": current_release["questions_sha256"],
                 "question_ids": question_ids,
@@ -174,6 +214,7 @@ def seed_previous_results(root: Path, output: Path) -> dict | None:
     lineage = {"source_commit": prior_release["commit"],
                "source_archive_sha256": (previous / "source-archive-sha256.txt").read_text().strip(),
                "carried_systems": {system: len(rows) for system, rows in copied.items()},
+               "source_fulltext_cache_implementation": prior_model.get("fulltext_cache_implementation"),
                "recovery": "fulltext OOM; same model, prompt, corpus and questions; offloaded KV cache"}
     lineage_path = output / "recovery-lineage.json"
     if lineage_path.exists() and json.loads(lineage_path.read_text()) != lineage:
@@ -210,7 +251,7 @@ def execute(root: Path) -> dict:
         root / "runs/release-candidate/manifest.json",
         root / "runs/complete-owner-reviewed-benchmark.jsonl",
         root / "data/processed/manifest.json", output, runners,
-        fatal_error_types=("OutOfMemoryError",))
+        fatal_error_types=("OutOfMemoryError", "RuntimeError", "TypeError"))
 
 
 def export_results(root: Path, destination: Path) -> dict:
