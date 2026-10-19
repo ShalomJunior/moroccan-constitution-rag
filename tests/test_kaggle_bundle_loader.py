@@ -15,10 +15,11 @@ from scripts.build_kaggle_final_bundle import previous_result_members
 
 
 def make_bundle(tmp_path: Path) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     source = tmp_path / "source"
     source.mkdir()
     subprocess.run(["git", "init", "-q", str(source)], check=True)
-    (source / "README.md").write_text("sample\n")
+    (source / "README.md").write_text(f"sample-{tmp_path.name}\n")
     subprocess.run(["git", "add", "README.md"], cwd=source, check=True)
     subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
                     "commit", "-qm", "sample"], cwd=source, check=True)
@@ -87,3 +88,62 @@ class KaggleBundleLoaderTests(unittest.TestCase):
                         archive.writestr(name, "sample")
                 with zipfile.ZipFile(buffer) as archive:
                     self.assertEqual(previous_result_members(archive), sorted(required + optional))
+
+    def test_new_input_backs_up_failed_working_run_before_upgrade(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            old_archive = make_bundle(tmp / "old")
+            new_archive = make_bundle(tmp / "new")
+            input_root = tmp / "input"
+            input_root.mkdir()
+            shutil.copy2(new_archive, input_root / new_archive.name)
+            working_root = tmp / "working/moroccan-constitution-rag"
+            with zipfile.ZipFile(old_archive) as archive:
+                archive.extractall(working_root)
+            old_commit = restore_git_metadata(working_root)
+            results = working_root / "runs/final-reserved-qwen4b-transformers"
+            results.mkdir()
+            (results / "manifest.json").write_text('{"run":"old"}\n')
+            write_rows = results / "fulltext/answers.jsonl"
+            write_rows.parent.mkdir()
+            write_rows.write_text(json.dumps({"question_id": "q1", "answer": None,
+                                             "error": {"type": "OutOfMemoryError"}}) + "\n")
+            (working_root / "runs/release-candidate").mkdir()
+            (working_root / "runs/release-candidate/manifest.json").write_text('{"commit":"old"}\n')
+            notebook = json.loads(Path("notebooks/kaggle_final.ipynb").read_text())
+            cell = "".join(notebook["cells"][1]["source"])
+            cell = cell.replace("/kaggle/input", str(input_root))
+            cell = cell.replace("/kaggle/working/moroccan-constitution-rag", str(working_root))
+            exec(compile(cell, "kaggle_final_first_cell", "exec"), {})
+            self.assertNotEqual(restore_git_metadata(working_root), old_commit)
+            backups = list(working_root.parent.glob("constitution-final-results-before-upgrade-*.zip"))
+            self.assertEqual(len(backups), 1)
+            with zipfile.ZipFile(backups[0]) as archive:
+                self.assertEqual(json.loads(archive.read(
+                    "runs/final-reserved-qwen4b-transformers/fulltext/answers.jsonl"))
+                    ["error"]["type"], "OutOfMemoryError")
+
+    def test_upgrade_preserves_successful_fulltext_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            old_archive = make_bundle(tmp / "old")
+            new_archive = make_bundle(tmp / "new")
+            input_root = tmp / "input"
+            input_root.mkdir()
+            shutil.copy2(new_archive, input_root / new_archive.name)
+            working_root = tmp / "working/moroccan-constitution-rag"
+            with zipfile.ZipFile(old_archive) as archive:
+                archive.extractall(working_root)
+            previous = working_root / "runs/final-reserved-qwen4b-transformers/fulltext/answers.jsonl"
+            previous.parent.mkdir(parents=True)
+            previous.write_text(json.dumps({"question_id": "q1", "answer": {"status": "answered"},
+                                            "error": None}) + "\n")
+            notebook = json.loads(Path("notebooks/kaggle_final.ipynb").read_text())
+            cell = "".join(notebook["cells"][1]["source"])
+            cell = cell.replace("/kaggle/input", str(input_root))
+            cell = cell.replace("/kaggle/working/moroccan-constitution-rag", str(working_root))
+            with self.assertRaisesRegex(RuntimeError, "1 successful full-text answers"):
+                exec(compile(cell, "kaggle_final_first_cell", "exec"), {})
+            self.assertTrue(previous.exists())
+            self.assertEqual(len(list(working_root.parent.glob(
+                "constitution-final-results-before-upgrade-*.zip"))), 1)
