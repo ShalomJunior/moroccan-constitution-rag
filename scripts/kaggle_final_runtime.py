@@ -75,15 +75,14 @@ class TransformersGenerator:
         with torch.inference_mode():
             if self.require_token_preflight and prompt_tokens > PREFILL_CHUNK_TOKENS:
                 generated = self._generate_chunked(input_ids, attention_mask)
-                cache_strategy = "offloaded-chunked"
+                cache_strategy = "gpu-sharded-chunked"
             else:
-                cache = {"cache_implementation": "offloaded"} if self.require_token_preflight else {}
                 output = self.backend.generate(
                     input_ids.to(self.backend.device), attention_mask=attention_mask.to(self.backend.device),
                     max_new_tokens=MAX_NEW_TOKENS, do_sample=False,
-                    pad_token_id=self.tokenizer.eos_token_id, use_cache=True, **cache)
+                    pad_token_id=self.tokenizer.eos_token_id, use_cache=True)
                 generated = output[0, prompt_tokens:]
-                cache_strategy = "offloaded" if self.require_token_preflight else "dynamic"
+                cache_strategy = "dynamic"
         content = self.tokenizer.decode(generated, skip_special_tokens=True)
         try:
             raw = json.loads(content)
@@ -106,7 +105,7 @@ class TransformersGenerator:
         device = self.backend.device
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
-        cache = DynamicCache(config=self.backend.config, offloading=True)
+        cache = DynamicCache(config=self.backend.config, offloading=False)
         prompt_tokens = int(input_ids.shape[-1])
         for start in range(0, prompt_tokens - 1, PREFILL_CHUNK_TOKENS):
             end = min(start + PREFILL_CHUNK_TOKENS, prompt_tokens - 1)
@@ -125,8 +124,7 @@ def load_model():
     from huggingface_hub import snapshot_download
     from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-    if not torch.cuda.is_available():
-        raise RuntimeError("Select a Kaggle GPU accelerator")
+    require_dual_gpu(torch)
     snapshot = snapshot_download(
         repo_id=MODEL_ID, revision=MODEL_REVISION,
         allow_patterns=["*.json", "*.jinja", "*.model", "*.txt", "*.safetensors"])
@@ -138,16 +136,34 @@ def load_model():
         load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.float16)
     model = AutoModelForCausalLM.from_pretrained(
         snapshot, local_files_only=True, config=config, quantization_config=quantization,
-        device_map="auto", dtype=torch.float16)
+        device_map="balanced", max_memory={0: "13GiB", 1: "13GiB"}, dtype=torch.float16)
     model.eval()
+    placements = {str(device) for device in model.hf_device_map.values()}
+    if (not placements.intersection({"0", "cuda:0"}) or
+            not placements.intersection({"1", "cuda:1"}) or
+            placements.intersection({"cpu", "disk"})):
+        raise RuntimeError(f"Qwen must occupy both T4 GPUs without CPU offloading; map={model.hf_device_map}")
     provenance = {"model_id": MODEL_ID, "model_revision": MODEL_REVISION,
                   "quantization": "bitsandbytes-nf4", "context_capacity_tokens": TOKEN_LIMIT,
-                  "fulltext_cache_implementation": "offloaded-chunked",
+                  "fulltext_cache_implementation": "gpu-sharded-chunked",
                   "prefill_chunk_tokens": PREFILL_CHUNK_TOKENS,
                   "rope_scaling": ROPE_SCALING,
                   "transformers_version": transformers.__version__, "torch_version": torch.__version__,
-                  "gpu": torch.cuda.get_device_name(0)}
+                  "gpu": torch.cuda.get_device_name(0),
+                  "gpus": [torch.cuda.get_device_name(i) for i in range(2)],
+                  "device_map": {name: str(device) for name, device in model.hf_device_map.items()}}
     return tokenizer, model, provenance
+
+
+def require_dual_gpu(torch) -> None:
+    if not torch.cuda.is_available() or torch.cuda.device_count() < 2:
+        raise RuntimeError("Select the Kaggle T4 x2 accelerator; full-text evaluation needs two GPUs")
+    for index in range(2):
+        free, total = torch.cuda.mem_get_info(index)
+        if total < 14 * 1024**3 or free < 10 * 1024**3:
+            raise RuntimeError(
+                f"GPU {index} has insufficient free memory ({free / 1024**3:.1f} / "
+                f"{total / 1024**3:.1f} GiB); restart the Kaggle session with T4 x2")
 
 
 def seed_previous_results(root: Path, output: Path) -> dict | None:
@@ -215,7 +231,7 @@ def seed_previous_results(root: Path, output: Path) -> dict | None:
                "source_archive_sha256": (previous / "source-archive-sha256.txt").read_text().strip(),
                "carried_systems": {system: len(rows) for system, rows in copied.items()},
                "source_fulltext_cache_implementation": prior_model.get("fulltext_cache_implementation"),
-               "recovery": "fulltext OOM; same model, prompt, corpus and questions; offloaded KV cache"}
+               "recovery": "fulltext OOM; same model, prompt, corpus and questions; dual-GPU KV cache"}
     lineage_path = output / "recovery-lineage.json"
     if lineage_path.exists() and json.loads(lineage_path.read_text()) != lineage:
         raise ValueError("Recovery lineage changed")
