@@ -2,6 +2,7 @@
 import hashlib
 import json
 import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
@@ -159,11 +160,11 @@ def require_dual_gpu(torch) -> None:
     if not torch.cuda.is_available() or torch.cuda.device_count() < 2:
         raise RuntimeError("Select the Kaggle T4 x2 accelerator; full-text evaluation needs two GPUs")
     for index in range(2):
-        free, total = torch.cuda.mem_get_info(index)
-        if total < 14 * 1024**3 or free < 10 * 1024**3:
+        total = torch.cuda.get_device_properties(index).total_memory
+        if total < 14 * 1024**3:
             raise RuntimeError(
-                f"GPU {index} has insufficient free memory ({free / 1024**3:.1f} / "
-                f"{total / 1024**3:.1f} GiB); restart the Kaggle session with T4 x2")
+                f"GPU {index} has only {total / 1024**3:.1f} GiB total memory; "
+                "select the Kaggle T4 x2 accelerator")
 
 
 def seed_previous_results(root: Path, output: Path) -> dict | None:
@@ -289,3 +290,9 @@ def export_results(root: Path, destination: Path) -> dict:
             "answer_rows": {name: sum(1 for _ in (output / name / "answers.jsonl").open())
                             if (output / name / "answers.jsonl").is_file() else 0
                             for name in systems}}
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        raise SystemExit("Usage: python -m scripts.kaggle_final_runtime ROOT")
+    print(json.dumps(execute(Path(sys.argv[1]).resolve()), ensure_ascii=False, indent=2))
