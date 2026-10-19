@@ -148,6 +148,29 @@ class ReleasePipelineTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(len(calls), 3)
 
+    def test_fatal_gpu_error_is_saved_once_and_stops_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            questions, passages = root / "questions.jsonl", root / "passages.jsonl"
+            corpus, frozen, output = root / "corpus.json", root / "release.json", root / "run"
+            write_jsonl(questions, [{"question_id": "q1", "family_id": "f1", "split": "test",
+                                     "review_status": "reviewed", "question": "Question ?"}])
+            write_jsonl(passages, [{"passage_id": "p1", "canonical_text": "Texte.", "text_hash": "hash"}])
+            from constitution_evidence.store import digest
+            corpus.write_text(json.dumps({"passages_hash": digest(passages.read_bytes())}))
+            frozen.write_text('{"status":"ready"}')
+            def oom(_question):
+                raise type("OutOfMemoryError", (Exception,), {})('CUDA out of memory')
+            systems = {name: oom for name in ("fulltext", "bm25_rag", "selected_pipeline")}
+            with patch("constitution_evidence.release.assert_reserved_test_ready", return_value={"status": "ready"}):
+                with self.assertRaisesRegex(RuntimeError, "Stopped after fulltext/q1"):
+                    run_reserved_test(frozen, questions, corpus, output, systems,
+                                      expected_families=1, fatal_error_types=("OutOfMemoryError",))
+            saved = read_jsonl(output / "fulltext/answers.jsonl")
+            self.assertEqual(len(saved), 1)
+            self.assertEqual(saved[0]["error"]["type"], "OutOfMemoryError")
+            self.assertFalse((output / "bm25_rag/answers.jsonl").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

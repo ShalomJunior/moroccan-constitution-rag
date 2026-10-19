@@ -24,7 +24,7 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def build(output: Path) -> dict:
+def build(output: Path, previous_results: Path | None = None) -> dict:
     questions = ROOT / "runs/complete-owner-reviewed-benchmark.jsonl"
     release = ROOT / "runs/release-candidate/manifest.json"
     frozen = assert_reserved_test_ready(release, questions, ROOT / "data/processed/manifest.json")
@@ -72,13 +72,37 @@ def build(output: Path) -> dict:
             destination = checkout / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, destination)
+        if previous_results is not None:
+            previous_root = checkout / "runs/previous-final-results"
+            expected = {f"runs/final-reserved-qwen4b-transformers/{name}"
+                        for name in ("manifest.json", "model-provenance.json",
+                                     "bm25_rag/answers.jsonl", "selected_pipeline/answers.jsonl")}
+            expected.add("runs/release-candidate/manifest.json")
+            with zipfile.ZipFile(previous_results) as source:
+                found = set(source.namelist())
+                if not expected <= found:
+                    raise ValueError(f"Previous results lack required files: {sorted(expected - found)}")
+                allowed = expected | {"runs/final-reserved-qwen4b-transformers/fulltext/answers.jsonl"}
+                if found != allowed:
+                    raise ValueError("Previous results have unexpected files")
+                for name in sorted(found):
+                    destination = previous_root / name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(source.read(name))
+                    private_files.append(destination.relative_to(checkout).as_posix())
+            source_hash = previous_root / "source-archive-sha256.txt"
+            source_hash.write_text(sha256(previous_results) + "\n")
+            private_files.append(source_hash.relative_to(checkout).as_posix())
+            from scripts.kaggle_final_runtime import seed_previous_results
+            with tempfile.TemporaryDirectory(prefix="constitution-recovery-check-") as check_dir:
+                seed_previous_results(checkout, Path(check_dir) / "run")
         git_buffer = io.BytesIO()
         with tarfile.open(fileobj=git_buffer, mode="w:gz") as archive:
             archive.add(checkout / ".git", arcname=".git", recursive=True)
         git_metadata = git_buffer.getvalue()
         marker = {"commit": commit, "release_sha256": sha256(release),
                   "questions_sha256": sha256(questions),
-                  "files": {name: sha256(ROOT / name) for name in private_files},
+                  "files": {name: sha256(checkout / name) for name in private_files},
                   "git_metadata_sha256": hashlib.sha256(git_metadata).hexdigest(),
                   "git_metadata_b64": base64.b64encode(git_metadata).decode("ascii")}
         marker_path = checkout / "runs/kaggle-bundle.json"
@@ -98,5 +122,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path,
                         default=ROOT / "runs/constitution-evidence-final-input.zip")
+    parser.add_argument("--previous-results", type=Path)
     args = parser.parse_args()
-    print(json.dumps(build(args.output), ensure_ascii=False, indent=2))
+    print(json.dumps(build(args.output, args.previous_results), ensure_ascii=False, indent=2))
