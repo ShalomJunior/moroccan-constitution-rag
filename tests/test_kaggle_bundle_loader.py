@@ -11,6 +11,7 @@ import zipfile
 from pathlib import Path
 
 from scripts.kaggle_bundle_loader import restore_git_metadata
+from scripts.build_kaggle_final_bundle import previous_result_members
 
 
 def make_bundle(tmp_path: Path) -> Path:
@@ -71,3 +72,18 @@ class KaggleBundleLoaderTests(unittest.TestCase):
         for extracted in (False, True):
             with self.subTest(extracted=extracted), tempfile.TemporaryDirectory() as directory:
                 check_first_cell(Path(directory), extracted)
+
+    def test_recovery_archive_accepts_optional_fulltext_and_lineage(self):
+        base = "runs/final-reserved-qwen4b-transformers/"
+        required = [base + name for name in ("manifest.json", "model-provenance.json",
+                    "bm25_rag/answers.jsonl", "selected_pipeline/answers.jsonl")]
+        required.append("runs/release-candidate/manifest.json")
+        for optional in ([], [base + "fulltext/answers.jsonl"],
+                         [base + "fulltext/answers.jsonl", base + "recovery-lineage.json"]):
+            with self.subTest(optional=optional):
+                buffer = io.BytesIO()
+                with zipfile.ZipFile(buffer, "w") as archive:
+                    for name in required + optional:
+                        archive.writestr(name, "sample")
+                with zipfile.ZipFile(buffer) as archive:
+                    self.assertEqual(previous_result_members(archive), sorted(required + optional))
