@@ -127,9 +127,17 @@ class KaggleFinalTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "T4 x2"):
             require_dual_gpu(types.SimpleNamespace(cuda=cuda))
 
+    def test_two_t4s_are_accepted_without_an_arbitrary_free_memory_threshold(self):
+        cuda = types.SimpleNamespace(
+            is_available=lambda: True, device_count=lambda: 2,
+            get_device_properties=lambda index: types.SimpleNamespace(total_memory=15 * 1024**3),
+            mem_get_info=lambda index: (_ for _ in ()).throw(AssertionError("free-memory probe")))
+        require_dual_gpu(types.SimpleNamespace(cuda=cuda))
+
     def test_model_load_balances_weights_across_two_gpus(self):
         cuda = types.SimpleNamespace(is_available=lambda: True, device_count=lambda: 2,
-                                     mem_get_info=lambda index: (12 * 1024**3, 15 * 1024**3),
+                                     get_device_properties=lambda index: types.SimpleNamespace(
+                                         total_memory=15 * 1024**3),
                                      get_device_name=lambda index: f"T4-{index}")
         fake_torch = types.ModuleType("torch")
         fake_torch.cuda = cuda
@@ -158,6 +166,17 @@ class KaggleFinalTests(unittest.TestCase):
         self.assertEqual(calls["device_map"], "balanced")
         self.assertEqual(calls["max_memory"], {0: "13GiB", 1: "13GiB"})
         self.assertEqual(provenance["gpus"], ["T4-0", "T4-1"])
+
+    def test_notebook_runs_gpu_evaluation_in_a_child_process(self):
+        notebook = json.loads((Path(__file__).parents[1] / "notebooks/kaggle_final.ipynb").read_text())
+        cell = "".join(notebook["cells"][4]["source"])
+        calls = []
+        root = Path("/kaggle/working/moroccan-constitution-rag")
+        command = types.SimpleNamespace(run=lambda *args, **kwargs: calls.append((args, kwargs)))
+        exec(cell, {"subprocess": command, "sys": types.SimpleNamespace(executable="python"),
+                    "ROOT": root})
+        self.assertEqual(calls, [((["python", "-m", "scripts.kaggle_final_runtime", str(root)],),
+                                  {"check": True, "cwd": root})])
 
     def test_full_text_budget_fails_before_generation(self):
         model = Model()
