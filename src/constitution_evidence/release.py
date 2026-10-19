@@ -64,6 +64,8 @@ def release_readiness(questions_path: Path, corpus_manifest_path: Path,
         reasons.append("Validated retrieval selection is missing")
     elif selection.get("questions_sha256") != digest(questions_path.read_bytes()):
         reasons.append("Selection does not match the frozen questions")
+    elif selection.get("policy_sha256") != digest((repo_root / "configs/selection_policy.json").read_bytes()):
+        reasons.append("Selection policy changed after validation")
     systems = json.loads(systems_path.read_text()) if systems_path.exists() else {}
     if set(systems) != set(FINAL_SYSTEMS):
         reasons.append("Three final system configurations are not fixed")
@@ -76,6 +78,22 @@ def release_readiness(questions_path: Path, corpus_manifest_path: Path,
         if len({systems[name].get("model") for name in FINAL_SYSTEMS}) != 1 or any(
                 systems[name].get("prompt_sha256") != prompt_hash() for name in FINAL_SYSTEMS):
             reasons.append("Final systems must use one model and the current Qwen prompt")
+    if selection.get("selected_retrieval_run") and set(systems) == set(FINAL_SYSTEMS):
+        selected_run = selection["selected_retrieval_run"]
+        candidates = [item for item in selection.get("candidates", []) if item.get("run") == selected_run]
+        manifest_path = repo_root / "runs" / selected_run / "manifest.json"
+        if len(candidates) != 1 or not manifest_path.exists():
+            reasons.append("Selected retrieval run is unavailable")
+        else:
+            run = json.loads(manifest_path.read_text())
+            chosen = systems["selected_pipeline"]
+            if (chosen.get("strategy") != candidates[0].get("method") or
+                    chosen.get("strategy") != run.get("method") or
+                    chosen.get("top_k", 5) != run.get("article_k") or
+                    chosen.get("max_context_chars", 7000) != run.get("context_chars") or
+                    run.get("questions_sha256") != selection.get("questions_sha256") or
+                    run.get("passages_sha256") != digest((corpus_manifest_path.parent / "passages.jsonl").read_bytes())):
+                reasons.append("Final pipeline differs from the selected validation run")
     if not analysis_plan_path.exists():
         reasons.append("Analysis plan is missing")
     lock_path = repo_root / "uv.lock"

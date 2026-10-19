@@ -55,6 +55,7 @@ def _main(argv=None):
     p = sub.add_parser("select-validation")
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
     p.add_argument("--policy", type=Path, default=ROOT / "configs/selection_policy.json")
+    p.add_argument("--output", type=Path, default=ROOT / "runs/validation-selection.json")
     p.add_argument("run_ids", nargs="+")
     p = sub.add_parser("oracle-run")
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
@@ -231,6 +232,10 @@ def _main(argv=None):
         if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", item) for item in args.run_ids):
             raise ValueError("Invalid run ID")
         result = select_validation(args.questions, [ROOT / "runs" / item for item in args.run_ids], args.policy)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        if args.output.exists() and json.loads(args.output.read_text()) != result:
+            raise ValueError("Selection output already exists with different results")
+        args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     elif args.command == "oracle-run":
         from .experiments import run_oracle
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.run_id):

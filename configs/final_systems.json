@@ -1,0 +1,23 @@
+{
+  "fulltext": {
+    "model": "Qwen3-4B",
+    "prompt_sha256": "0397b36d439e79c5fe8c6b6f60d5cdfb694b83f9d13f3e8585ffcb4b047ea744",
+    "context_mode": "fulltext"
+  },
+  "bm25_rag": {
+    "model": "Qwen3-4B",
+    "prompt_sha256": "0397b36d439e79c5fe8c6b6f60d5cdfb694b83f9d13f3e8585ffcb4b047ea744",
+    "strategy": "bm25",
+    "top_k": 5,
+    "max_context_chars": 7000
+  },
+  "selected_pipeline": {
+    "model": "Qwen3-4B",
+    "prompt_sha256": "0397b36d439e79c5fe8c6b6f60d5cdfb694b83f9d13f3e8585ffcb4b047ea744",
+    "strategy": "hybrid",
+    "top_k": 10,
+    "max_context_chars": 7000,
+    "expand_references": false,
+    "decompose": false
+  }
+}
