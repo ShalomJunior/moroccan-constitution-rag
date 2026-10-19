@@ -1,8 +1,8 @@
 """Pinned Transformers execution of the frozen three-system evaluation."""
 import hashlib
 import json
+import os
 import subprocess
-import sys
 import zipfile
 from pathlib import Path
 
@@ -152,6 +152,8 @@ def load_model():
                   "transformers_version": transformers.__version__, "torch_version": torch.__version__,
                   "gpu": torch.cuda.get_device_name(0),
                   "gpus": [torch.cuda.get_device_name(i) for i in range(2)],
+                  "jax_platforms": os.environ.get("JAX_PLATFORMS"),
+                  "xla_preallocate": os.environ.get("XLA_PYTHON_CLIENT_PREALLOCATE"),
                   "device_map": {name: str(device) for name, device in model.hf_device_map.items()}}
     return tokenizer, model, provenance
 
@@ -290,9 +292,3 @@ def export_results(root: Path, destination: Path) -> dict:
             "answer_rows": {name: sum(1 for _ in (output / name / "answers.jsonl").open())
                             if (output / name / "answers.jsonl").is_file() else 0
                             for name in systems}}
-
-
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        raise SystemExit("Usage: python -m scripts.kaggle_final_runtime ROOT")
-    print(json.dumps(execute(Path(sys.argv[1]).resolve()), ensure_ascii=False, indent=2))
