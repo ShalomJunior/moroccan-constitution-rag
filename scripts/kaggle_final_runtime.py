@@ -11,6 +11,7 @@ from constitution_evidence.local_generation import (
     LOCAL_PROMPT_VERSION, RAW_SCHEMA, answer_messages, checked_answer,
 )
 from constitution_evidence.release import assert_reserved_test_ready, run_reserved_test
+from constitution_evidence.store import digest, read_jsonl, write_jsonl
 
 MODEL_ID = "Qwen/Qwen3-4B"
 MODEL_REVISION = "1cfa9a7208912126459214e8b04321603b3df60c"
@@ -70,9 +71,10 @@ class TransformersGenerator:
         if required > TOKEN_LIMIT:
             raise GenerationError(f"budget_exceeded: need {required} tokens; context capacity={TOKEN_LIMIT}")
         with torch.inference_mode():
+            cache = {"cache_implementation": "offloaded"} if self.require_token_preflight else {}
             output = self.backend.generate(
                 input_ids.to(self.backend.device), max_new_tokens=MAX_NEW_TOKENS,
-                do_sample=False, pad_token_id=self.tokenizer.eos_token_id, use_cache=True)
+                do_sample=False, pad_token_id=self.tokenizer.eos_token_id, use_cache=True, **cache)
         generated = output[0, prompt_tokens:]
         content = self.tokenizer.decode(generated, skip_special_tokens=True)
         try:
@@ -83,7 +85,8 @@ class TransformersGenerator:
             raw, supplied, manifest, self.model, LOCAL_PROMPT_VERSION,
             {"prompt_tokens": prompt_tokens, "completion_tokens": int(generated.numel()),
              "model_id": MODEL_ID, "model_revision": self.model_revision,
-             "quantization": "bitsandbytes-nf4"})
+             "quantization": "bitsandbytes-nf4",
+             "cache_implementation": "offloaded" if self.require_token_preflight else "dynamic"})
         result["model_id"] = MODEL_ID
         result["model_revision"] = self.model_revision
         return result
@@ -112,16 +115,78 @@ def load_model():
     model.eval()
     provenance = {"model_id": MODEL_ID, "model_revision": MODEL_REVISION,
                   "quantization": "bitsandbytes-nf4", "context_capacity_tokens": TOKEN_LIMIT,
+                  "fulltext_cache_implementation": "offloaded",
                   "rope_scaling": ROPE_SCALING,
                   "transformers_version": transformers.__version__, "torch_version": torch.__version__,
                   "gpu": torch.cuda.get_device_name(0)}
     return tokenizer, model, provenance
 
 
+def seed_previous_results(root: Path, output: Path) -> dict | None:
+    """Carry forward unchanged retrieval-system answers from the failed T4 run."""
+    previous = root / "runs/previous-final-results"
+    if not previous.exists():
+        return None
+    prior_run = previous / "runs" / RUN_ID
+    prior_release = json.loads((previous / "runs/release-candidate/manifest.json").read_text())
+    current_release_path = root / "runs/release-candidate/manifest.json"
+    current_release = json.loads(current_release_path.read_text())
+    immutable = ("corpus_hash", "corpus_manifest_sha256", "questions_sha256",
+                 "selection_sha256", "systems_sha256", "analysis_plan_sha256", "lock_sha256")
+    if any(prior_release.get(key) != current_release.get(key) for key in immutable):
+        raise ValueError("Previous results do not match the frozen corpus, questions, or systems")
+    prior_manifest = json.loads((prior_run / "manifest.json").read_text())
+    questions = [q for q in read_jsonl(root / "runs/complete-owner-reviewed-benchmark.jsonl")
+                 if q["split"] == "test"]
+    question_ids = [q["question_id"] for q in questions]
+    if (prior_manifest.get("question_ids") != question_ids or
+            prior_manifest.get("questions_sha256") != current_release["questions_sha256"] or
+            prior_manifest.get("release_sha256") != digest(
+                (previous / "runs/release-candidate/manifest.json").read_bytes())):
+        raise ValueError("Previous results have a different reserved test inventory")
+    prior_model = json.loads((prior_run / "model-provenance.json").read_text())
+    if (prior_model.get("model_id") != MODEL_ID or prior_model.get("model_revision") != MODEL_REVISION or
+            prior_model.get("quantization") != "bitsandbytes-nf4" or
+            prior_model.get("rope_scaling") != ROPE_SCALING):
+        raise ValueError("Previous results used a different model configuration")
+    copied = {}
+    for system in ("bm25_rag", "selected_pipeline"):
+        rows = read_jsonl(prior_run / system / "answers.jsonl")
+        if [row.get("question_id") for row in rows] != question_ids or any(
+                row.get("family_id") != question["family_id"] for row, question in zip(rows, questions)):
+            raise ValueError(f"Previous {system} answers are incomplete or out of order")
+        copied[system] = rows
+    expected = {"release_sha256": digest(current_release_path.read_bytes()),
+                "questions_sha256": current_release["questions_sha256"],
+                "question_ids": question_ids,
+                "systems": ["fulltext", "bm25_rag", "selected_pipeline"]}
+    output.mkdir(parents=True, exist_ok=True)
+    manifest_path = output / "manifest.json"
+    if manifest_path.exists():
+        if json.loads(manifest_path.read_text()) != expected:
+            raise ValueError("Existing run belongs to a different recovery release")
+    else:
+        if any((output / system / "answers.jsonl").exists() for system in expected["systems"]):
+            raise ValueError("Existing answers have no recovery manifest")
+        for system, rows in copied.items():
+            write_jsonl(output / system / "answers.jsonl", rows)
+        manifest_path.write_text(json.dumps(expected, ensure_ascii=False, indent=2) + "\n")
+    lineage = {"source_commit": prior_release["commit"],
+               "source_archive_sha256": (previous / "source-archive-sha256.txt").read_text().strip(),
+               "carried_systems": {system: len(rows) for system, rows in copied.items()},
+               "recovery": "fulltext OOM; same model, prompt, corpus and questions; offloaded KV cache"}
+    lineage_path = output / "recovery-lineage.json"
+    if lineage_path.exists() and json.loads(lineage_path.read_text()) != lineage:
+        raise ValueError("Recovery lineage changed")
+    lineage_path.write_text(json.dumps(lineage, ensure_ascii=False, indent=2) + "\n")
+    return lineage
+
+
 def execute(root: Path) -> dict:
     marker = verify_bundle(root)
-    tokenizer, model, provenance = load_model()
     output = root / "runs" / RUN_ID
+    seed_previous_results(root, output)
+    tokenizer, model, provenance = load_model()
     output.mkdir(parents=True, exist_ok=True)
     provenance.update({"release_sha256": marker["release_sha256"], "commit": marker["commit"]})
     provenance_path = output / "model-provenance.json"
@@ -144,13 +209,16 @@ def execute(root: Path) -> dict:
     return run_reserved_test(
         root / "runs/release-candidate/manifest.json",
         root / "runs/complete-owner-reviewed-benchmark.jsonl",
-        root / "data/processed/manifest.json", output, runners)
+        root / "data/processed/manifest.json", output, runners,
+        fatal_error_types=("OutOfMemoryError",))
 
 
 def export_results(root: Path, destination: Path) -> dict:
     verify_bundle(root)
     output = root / "runs" / RUN_ID
     files = [output / "manifest.json", output / "model-provenance.json"]
+    if (output / "recovery-lineage.json").is_file():
+        files.append(output / "recovery-lineage.json")
     systems = ("fulltext", "bm25_rag", "selected_pipeline")
     files.extend(path for system in systems if (path := output / system / "answers.jsonl").is_file())
     files.append(root / "runs/release-candidate/manifest.json")

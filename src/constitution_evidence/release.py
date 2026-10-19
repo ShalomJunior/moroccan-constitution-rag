@@ -159,7 +159,8 @@ def assert_reserved_test_ready(release_manifest_path: Path, questions_path: Path
 
 
 def run_reserved_test(release_manifest_path: Path, questions_path: Path, corpus_manifest_path: Path,
-                      output_dir: Path, runners: dict, expected_families: int = 90) -> dict:
+                      output_dir: Path, runners: dict, expected_families: int = 90,
+                      fatal_error_types: tuple[str, ...] = ()) -> dict:
     """Execute fixed system adapters once per question, saving each result atomically."""
     frozen = assert_reserved_test_ready(release_manifest_path, questions_path, corpus_manifest_path)
     if set(runners) != set(FINAL_SYSTEMS):
@@ -217,6 +218,11 @@ def run_reserved_test(release_manifest_path: Path, questions_path: Path, corpus_
                          "answer": answer, "context_passage_ids": context_ids,
                          "error": error, "elapsed_ms": round((time.perf_counter() - started) * 1000, 1)}
             write_jsonl(path, [done[item] for item in expected["question_ids"] if item in done])
+            if error and error["type"] in fatal_error_types:
+                raise RuntimeError(
+                    f"Stopped after {system}/{qid}: {error['type']}. "
+                    "The saved row and earlier results are available for export."
+                )
         summary[system] = {"completed": len(done), "errors": sum(row["error"] is not None for row in done.values()),
                            "answers_path": str(path)}
     return {"status": "complete", "systems": summary, "questions": len(questions),
