@@ -77,7 +77,7 @@ class KaggleFinalTests(unittest.TestCase):
 
     def test_full_text_budget_fails_before_generation(self):
         model = Model()
-        generator = TransformersGenerator(Tokenizer(tokens=32000), model, model_revision=MODEL_REVISION)
+        generator = TransformersGenerator(Tokenizer(tokens=65000), model, model_revision=MODEL_REVISION)
         with patch.dict(sys.modules, {"torch": self.torch}):
             with self.assertRaisesRegex(GenerationError, "budget_exceeded"):
                 generator.generate("Que dit l'article 20 ?", [self.passage], self.manifest)

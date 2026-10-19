@@ -15,7 +15,9 @@ from constitution_evidence.release import assert_reserved_test_ready, run_reserv
 MODEL_ID = "Qwen/Qwen3-4B"
 MODEL_REVISION = "1cfa9a7208912126459214e8b04321603b3df60c"
 MODEL_ALIAS = "Qwen3-4B"
-TOKEN_LIMIT = 32768
+TOKEN_LIMIT = 65536
+ROPE_SCALING = {"rope_type": "yarn", "factor": 2.0,
+                "original_max_position_embeddings": 32768}
 MAX_NEW_TOKENS = 768
 TOKEN_RESERVE = 128
 RUN_ID = "final-reserved-qwen4b-transformers"
@@ -66,7 +68,7 @@ class TransformersGenerator:
         prompt_tokens = int(input_ids.shape[-1])
         required = prompt_tokens + MAX_NEW_TOKENS + TOKEN_RESERVE
         if required > TOKEN_LIMIT:
-            raise GenerationError(f"budget_exceeded: need {required} tokens; native context={TOKEN_LIMIT}")
+            raise GenerationError(f"budget_exceeded: need {required} tokens; context capacity={TOKEN_LIMIT}")
         with torch.inference_mode():
             output = self.backend.generate(
                 input_ids.to(self.backend.device), max_new_tokens=MAX_NEW_TOKENS,
@@ -91,7 +93,7 @@ def load_model():
     import torch
     import transformers
     from huggingface_hub import snapshot_download
-    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+    from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
     if not torch.cuda.is_available():
         raise RuntimeError("Select a Kaggle GPU accelerator")
@@ -99,14 +101,18 @@ def load_model():
         repo_id=MODEL_ID, revision=MODEL_REVISION,
         allow_patterns=["*.json", "*.jinja", "*.model", "*.txt", "*.safetensors"])
     tokenizer = AutoTokenizer.from_pretrained(snapshot, local_files_only=True)
+    config = AutoConfig.from_pretrained(snapshot, local_files_only=True)
+    config.rope_scaling = ROPE_SCALING
+    config.max_position_embeddings = TOKEN_LIMIT
     quantization = BitsAndBytesConfig(
         load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.float16)
     model = AutoModelForCausalLM.from_pretrained(
-        snapshot, local_files_only=True, quantization_config=quantization,
+        snapshot, local_files_only=True, config=config, quantization_config=quantization,
         device_map="auto", dtype=torch.float16)
     model.eval()
     provenance = {"model_id": MODEL_ID, "model_revision": MODEL_REVISION,
-                  "quantization": "bitsandbytes-nf4", "native_context_tokens": TOKEN_LIMIT,
+                  "quantization": "bitsandbytes-nf4", "context_capacity_tokens": TOKEN_LIMIT,
+                  "rope_scaling": ROPE_SCALING,
                   "transformers_version": transformers.__version__, "torch_version": torch.__version__,
                   "gpu": torch.cuda.get_device_name(0)}
     return tokenizer, model, provenance
