@@ -24,6 +24,23 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def previous_result_members(source: zipfile.ZipFile) -> list[str]:
+    expected = {f"runs/final-reserved-qwen4b-transformers/{name}"
+                for name in ("manifest.json", "model-provenance.json",
+                             "bm25_rag/answers.jsonl", "selected_pipeline/answers.jsonl")}
+    expected.add("runs/release-candidate/manifest.json")
+    found = set(source.namelist())
+    if not expected <= found:
+        raise ValueError(f"Previous results lack required files: {sorted(expected - found)}")
+    allowed = expected | {
+        "runs/final-reserved-qwen4b-transformers/fulltext/answers.jsonl",
+        "runs/final-reserved-qwen4b-transformers/recovery-lineage.json",
+    }
+    if unexpected := found - allowed:
+        raise ValueError(f"Previous results have unexpected files: {sorted(unexpected)}")
+    return sorted(found)
+
+
 def build(output: Path, previous_results: Path | None = None) -> dict:
     questions = ROOT / "runs/complete-owner-reviewed-benchmark.jsonl"
     release = ROOT / "runs/release-candidate/manifest.json"
@@ -74,21 +91,8 @@ def build(output: Path, previous_results: Path | None = None) -> dict:
             shutil.copy2(ROOT / name, destination)
         if previous_results is not None:
             previous_root = checkout / "runs/previous-final-results"
-            expected = {f"runs/final-reserved-qwen4b-transformers/{name}"
-                        for name in ("manifest.json", "model-provenance.json",
-                                     "bm25_rag/answers.jsonl", "selected_pipeline/answers.jsonl")}
-            expected.add("runs/release-candidate/manifest.json")
             with zipfile.ZipFile(previous_results) as source:
-                found = set(source.namelist())
-                if not expected <= found:
-                    raise ValueError(f"Previous results lack required files: {sorted(expected - found)}")
-                allowed = expected | {
-                    "runs/final-reserved-qwen4b-transformers/fulltext/answers.jsonl",
-                    "runs/final-reserved-qwen4b-transformers/recovery-lineage.json",
-                }
-                if found != allowed:
-                    raise ValueError("Previous results have unexpected files")
-                for name in sorted(found):
+                for name in previous_result_members(source):
                     destination = previous_root / name
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(source.read(name))
