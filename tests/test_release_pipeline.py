@@ -50,6 +50,43 @@ class ReleasePipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "ready release"):
                 assert_reserved_test_ready(frozen, questions, corpus)
 
+    def test_release_rejects_pipeline_that_differs_from_validation_winner(self):
+        from constitution_evidence.campaign import prompt_hash
+        from constitution_evidence.store import digest
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "configs").mkdir()
+            (root / "runs/winner").mkdir(parents=True)
+            (root / "data/annotations").mkdir(parents=True)
+            (root / "data/processed").mkdir(parents=True)
+            questions = root / "questions.jsonl"
+            write_jsonl(questions, [])
+            passages = root / "data/processed/passages.jsonl"
+            write_jsonl(passages, [])
+            corpus = root / "data/processed/manifest.json"
+            corpus.write_text(json.dumps({"corpus_hash": "c", "review_status": "reviewed"}))
+            (root / "data/annotations/corpus-review.jsonl").write_text("")
+            policy = root / "configs/selection_policy.json"
+            policy.write_text("{}")
+            selection = root / "runs/validation-selection.json"
+            selection.write_text(json.dumps({"status": "ready_for_retrieval_selection",
+                                             "selected_retrieval_run": "winner",
+                                             "questions_sha256": digest(questions.read_bytes()),
+                                             "policy_sha256": digest(policy.read_bytes()),
+                                             "candidates": [{"run": "winner", "method": "hybrid"}]}))
+            (root / "runs/winner/manifest.json").write_text(json.dumps({
+                "method": "hybrid", "article_k": 10, "context_chars": 7000,
+                "questions_sha256": digest(questions.read_bytes()),
+                "passages_sha256": digest(passages.read_bytes())}))
+            systems = root / "configs/final_systems.json"
+            systems.write_text(json.dumps({
+                "fulltext": {"model": "Qwen", "prompt_sha256": prompt_hash(), "context_mode": "fulltext"},
+                "bm25_rag": {"model": "Qwen", "prompt_sha256": prompt_hash(), "strategy": "bm25"},
+                "selected_pipeline": {"model": "Qwen", "prompt_sha256": prompt_hash(),
+                                      "strategy": "dense", "top_k": 10, "max_context_chars": 7000}}))
+            result = release_readiness(questions, corpus, selection, systems, repo_root=root)
+            self.assertIn("Final pipeline differs from the selected validation run", result["reasons"])
+
     def test_blinding_and_family_paired_statistics(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
