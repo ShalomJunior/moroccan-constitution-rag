@@ -132,8 +132,8 @@ def evaluate(questions_path: Path, passages_path: Path, split: str, output_dir: 
                     if isinstance(engine, Hybrid) else engine.search(question["question"], depth))
             context = pack(hits[:k], context_chars)
             metrics = score_retrieval(hits, question.get("relevant_articles", []), k,
-                                      question.get("acceptable_evidence_sets"),
-                                      question.get("relevant_spans"), context)
+                                      question.get("acceptable_evidence_sets") or None,
+                                      question.get("relevant_spans") or None, context)
             done[question["question_id"]] = {
                 "question_id": question["question_id"], "family_id": question["family_id"], "split": split,
                 "variant_type": question.get("variant_type", "unspecified"),
