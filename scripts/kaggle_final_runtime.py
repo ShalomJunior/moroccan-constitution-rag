@@ -100,7 +100,7 @@ class TransformersGenerator:
         return result
 
     def _generate_chunked(self, input_ids, attention_mask):
-        """Prefill the same prompt in bounded forward passes, then decode with HF generate."""
+        """Prefill all but the last token, then let HF generate consume that token."""
         from transformers import DynamicCache
 
         device = self.backend.device
@@ -113,10 +113,10 @@ class TransformersGenerator:
             self.backend(input_ids=input_ids[:, start:end], attention_mask=attention_mask[:, :end],
                          past_key_values=cache, use_cache=True, logits_to_keep=1)
         output = self.backend.generate(
-            input_ids=input_ids[:, -1:], attention_mask=attention_mask,
+            input_ids=input_ids, attention_mask=attention_mask,
             past_key_values=cache, max_new_tokens=MAX_NEW_TOKENS,
             do_sample=False, pad_token_id=self.tokenizer.eos_token_id, use_cache=True)
-        return output[0, 1:]
+        return output[0, prompt_tokens:]
 
 
 def load_model():
@@ -270,7 +270,7 @@ def execute(root: Path) -> dict:
         root / "runs/release-candidate/manifest.json",
         root / "runs/complete-owner-reviewed-benchmark.jsonl",
         root / "data/processed/manifest.json", output, runners,
-        fatal_error_types=("OutOfMemoryError", "RuntimeError", "TypeError"))
+        fatal_error_types=("OutOfMemoryError", "RuntimeError", "TypeError", "IndexError"))
 
 
 def export_results(root: Path, destination: Path) -> dict:

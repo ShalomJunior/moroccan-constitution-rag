@@ -71,12 +71,20 @@ class Model:
 
     def __call__(self, **kwargs):
         self.forward_chunks.append((kwargs["input_ids"].shape[-1], kwargs["attention_mask"].shape[-1]))
+        if isinstance(kwargs.get("past_key_values"), dict):
+            kwargs["past_key_values"]["length"] = kwargs["past_key_values"].get("length", 0) + kwargs["input_ids"].shape[-1]
         return object()
 
     def generate(self, *args, **kwargs):
         self.calls += 1
         self.last_kwargs = kwargs
+        if isinstance(kwargs.get("past_key_values"), dict):
+            self.assert_cache_has_one_unprocessed_token(kwargs)
         return Output()
+
+    @staticmethod
+    def assert_cache_has_one_unprocessed_token(kwargs):
+        assert kwargs["input_ids"].shape[-1] == kwargs["past_key_values"]["length"] + 1
 
 
 class KaggleFinalTests(unittest.TestCase):
@@ -120,7 +128,8 @@ class KaggleFinalTests(unittest.TestCase):
             generator.generate("Que dit l'article 20 ?", [self.passage], self.manifest)
         self.assertEqual(model.forward_chunks, [(512, 512), (512, 1024), (12, 1036)])
         self.assertEqual(model.last_kwargs["attention_mask"].shape, (1, tokens))
-        self.assertEqual(model.last_kwargs["input_ids"].shape, (1, 1))
+        self.assertEqual(model.last_kwargs["input_ids"].shape, (1, tokens))
+        self.assertEqual(model.last_kwargs["past_key_values"]["length"], tokens - 1)
         self.assertIn("past_key_values", model.last_kwargs)
         self.assertFalse(model.last_kwargs["past_key_values"]["offloading"])
 
