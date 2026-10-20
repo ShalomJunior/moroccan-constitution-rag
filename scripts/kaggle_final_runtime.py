@@ -247,7 +247,7 @@ def seed_previous_results(root: Path, output: Path) -> dict | None:
                "source_archive_sha256": (previous / "source-archive-sha256.txt").read_text().strip(),
                "carried_systems": {system: len(rows) for system, rows in copied.items()},
                "source_fulltext_cache_implementation": prior_model.get("fulltext_cache_implementation"),
-               "recovery": "fulltext OOM; same model, prompt, corpus and questions; dual-GPU KV cache"}
+               "recovery": "verified previous answers; same model, prompt, corpus and questions"}
     lineage_path = output / "recovery-lineage.json"
     if lineage_path.exists() and json.loads(lineage_path.read_text()) != lineage:
         raise ValueError("Recovery lineage changed")
@@ -255,7 +255,7 @@ def seed_previous_results(root: Path, output: Path) -> dict | None:
     return lineage
 
 
-def execute(root: Path) -> dict:
+def execute(root: Path, max_new_fulltext: int | None = None) -> dict:
     marker = verify_bundle(root)
     output = root / "runs" / RUN_ID
     seed_previous_results(root, output)
@@ -263,8 +263,22 @@ def execute(root: Path) -> dict:
     output.mkdir(parents=True, exist_ok=True)
     provenance.update({"release_sha256": marker["release_sha256"], "commit": marker["commit"]})
     provenance_path = output / "model-provenance.json"
-    if provenance_path.exists() and json.loads(provenance_path.read_text()) != provenance:
-        raise ValueError("This run ID belongs to a different model or environment")
+    current_placement = {"placement": provenance["placement"],
+                         "device_map": provenance["device_map"]}
+    if provenance_path.exists():
+        previous = json.loads(provenance_path.read_text())
+        stable_keys = ("model_id", "model_revision", "quantization", "context_capacity_tokens",
+                       "fulltext_cache_implementation", "prefill_chunk_tokens", "rope_scaling",
+                       "transformers_version", "torch_version", "release_sha256", "commit")
+        if any(previous.get(key) != provenance.get(key) for key in stable_keys):
+            raise ValueError("This run ID belongs to a different model or environment")
+        placements = previous.get("placement_history", [
+            {"placement": previous.get("placement"), "device_map": previous.get("device_map")}])
+        if current_placement not in placements:
+            placements.append(current_placement)
+        provenance["placement_history"] = placements
+    else:
+        provenance["placement_history"] = [current_placement]
     provenance_path.write_text(json.dumps(provenance, ensure_ascii=False, indent=2) + "\n")
 
     def generator_factory(**kwargs):
@@ -283,7 +297,8 @@ def execute(root: Path) -> dict:
         root / "runs/release-candidate/manifest.json",
         root / "runs/complete-owner-reviewed-benchmark.jsonl",
         root / "data/processed/manifest.json", output, runners,
-        fatal_error_types=("OutOfMemoryError", "RuntimeError", "TypeError", "IndexError"))
+        fatal_error_types=("OutOfMemoryError", "RuntimeError", "TypeError", "IndexError"),
+        max_new_fulltext=max_new_fulltext)
 
 
 def export_results(root: Path, destination: Path) -> dict:

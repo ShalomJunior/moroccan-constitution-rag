@@ -1,4 +1,6 @@
 import contextlib
+import hashlib
+import importlib
 import json
 import os
 import runpy
@@ -14,7 +16,7 @@ from constitution_evidence.generation import GenerationError
 from constitution_evidence.store import digest, read_jsonl, write_jsonl
 from scripts.kaggle_final_runtime import (
     MODEL_REVISION, PREFILL_CHUNK_TOKENS, ROPE_SCALING, TransformersGenerator,
-    choose_gpu_placement, load_model, require_dual_gpu, seed_previous_results,
+    choose_gpu_placement, execute, load_model, require_dual_gpu, seed_previous_results,
 )
 
 
@@ -205,8 +207,22 @@ class KaggleFinalTests(unittest.TestCase):
         command = types.SimpleNamespace(run=lambda *args, **kwargs: calls.append((args, kwargs)))
         exec(cell, {"subprocess": command, "sys": types.SimpleNamespace(executable="python"),
                     "ROOT": root})
-        self.assertEqual(calls, [((["python", "-m", "scripts.kaggle_final_worker", str(root)],),
+        self.assertEqual(calls, [((["python", "-m", "scripts.kaggle_final_worker", str(root),
+                                   "--batch-size", "25"],),
                                   {"check": True, "cwd": root})])
+
+    def test_saved_notebook_installs_without_requiring_a_kernel_restart(self):
+        notebook = json.loads((Path(__file__).parents[1] / "notebooks/kaggle_final.ipynb").read_text())
+        cell = "".join(notebook["cells"][2]["source"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            calls = []
+            command = types.SimpleNamespace(run=lambda *args, **kwargs: calls.append((args, kwargs)))
+            exec(cell, {"Path": lambda path: root / "env.txt", "subprocess": command,
+                        "sys": types.SimpleNamespace(executable="python"), "ROOT": root,
+                        "hashlib": hashlib, "importlib": importlib, "json": json})
+            self.assertEqual(len(calls), 1)
+            self.assertTrue((root / "env.txt").is_file())
 
     def test_worker_disables_xla_gpu_claim_before_importing_runtime(self):
         observed = {}
@@ -222,6 +238,28 @@ class KaggleFinalTests(unittest.TestCase):
         self.assertEqual(observed, {"JAX_PLATFORMS": "cpu",
                                     "XLA_PYTHON_CLIENT_PREALLOCATE": "false",
                                     "USE_FLAX": "0", "USE_TF": "0"})
+
+    def test_resume_accepts_a_new_gpu_placement_for_the_same_model(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            placements = iter((0, 1))
+            def model():
+                gpu = next(placements)
+                return None, None, {"model_id": "Qwen/Qwen3-4B", "model_revision": MODEL_REVISION,
+                                    "quantization": "bitsandbytes-nf4", "placement": {"selected_gpu": gpu},
+                                    "device_map": {"": str(gpu)}}
+            with patch("scripts.kaggle_final_runtime.verify_bundle", return_value={
+                    "release_sha256": "release", "commit": "commit"}), patch(
+                    "scripts.kaggle_final_runtime.seed_previous_results"), patch(
+                    "scripts.kaggle_final_runtime.load_model", side_effect=model), patch(
+                    "scripts.kaggle_final_runtime.build_runners", return_value={}), patch(
+                    "scripts.kaggle_final_runtime.run_reserved_test", return_value={
+                    "status": "partial"}) as run:
+                execute(root, max_new_fulltext=25)
+                execute(root, max_new_fulltext=25)
+            provenance = json.loads((root / "runs/final-reserved-qwen4b-transformers/model-provenance.json").read_text())
+            self.assertEqual(len(provenance["placement_history"]), 2)
+            self.assertEqual(run.call_args.kwargs["max_new_fulltext"], 25)
 
     def test_full_text_budget_fails_before_generation(self):
         model = Model()
