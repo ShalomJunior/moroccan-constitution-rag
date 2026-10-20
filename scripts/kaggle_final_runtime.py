@@ -76,7 +76,7 @@ class TransformersGenerator:
         with torch.inference_mode():
             if self.require_token_preflight and prompt_tokens > PREFILL_CHUNK_TOKENS:
                 generated = self._generate_chunked(input_ids, attention_mask)
-                cache_strategy = "gpu-sharded-chunked"
+                cache_strategy = "gpu-resident-chunked"
             else:
                 output = self.backend.generate(
                     input_ids.to(self.backend.device), attention_mask=attention_mask.to(self.backend.device),
@@ -126,6 +126,7 @@ def load_model():
     from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
     require_dual_gpu(torch)
+    device_map, max_memory, placement = choose_gpu_placement(torch)
     snapshot = snapshot_download(
         repo_id=MODEL_ID, revision=MODEL_REVISION,
         allow_patterns=["*.json", "*.jinja", "*.model", "*.txt", "*.safetensors"])
@@ -137,21 +138,20 @@ def load_model():
         load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.float16)
     model = AutoModelForCausalLM.from_pretrained(
         snapshot, local_files_only=True, config=config, quantization_config=quantization,
-        device_map="balanced", max_memory={0: "13GiB", 1: "13GiB"}, dtype=torch.float16)
+        device_map=device_map, max_memory=max_memory, dtype=torch.float16)
     model.eval()
     placements = {str(device) for device in model.hf_device_map.values()}
-    if (not placements.intersection({"0", "cuda:0"}) or
-            not placements.intersection({"1", "cuda:1"}) or
-            placements.intersection({"cpu", "disk"})):
-        raise RuntimeError(f"Qwen must occupy both T4 GPUs without CPU offloading; map={model.hf_device_map}")
+    if not placements or not placements <= {"0", "1", "cuda:0", "cuda:1"}:
+        raise RuntimeError(f"Qwen must stay on Kaggle GPUs without CPU offloading; map={model.hf_device_map}")
     provenance = {"model_id": MODEL_ID, "model_revision": MODEL_REVISION,
                   "quantization": "bitsandbytes-nf4", "context_capacity_tokens": TOKEN_LIMIT,
-                  "fulltext_cache_implementation": "gpu-sharded-chunked",
+                  "fulltext_cache_implementation": "gpu-resident-chunked",
                   "prefill_chunk_tokens": PREFILL_CHUNK_TOKENS,
                   "rope_scaling": ROPE_SCALING,
                   "transformers_version": transformers.__version__, "torch_version": torch.__version__,
                   "gpu": torch.cuda.get_device_name(0),
                   "gpus": [torch.cuda.get_device_name(i) for i in range(2)],
+                  "placement": placement,
                   "jax_platforms": os.environ.get("JAX_PLATFORMS"),
                   "xla_preallocate": os.environ.get("XLA_PYTHON_CLIENT_PREALLOCATE"),
                   "device_map": {name: str(device) for name, device in model.hf_device_map.items()}}
@@ -167,6 +167,19 @@ def require_dual_gpu(torch) -> None:
             raise RuntimeError(
                 f"GPU {index} has only {total / 1024**3:.1f} GiB total memory; "
                 "select the Kaggle T4 x2 accelerator")
+
+
+def choose_gpu_placement(torch) -> tuple[str | dict, dict, dict]:
+    """Keep Qwen on available GPUs; avoid a T4 occupied by another process."""
+    free = [torch.cuda.mem_get_info(index)[0] for index in range(2)]
+    free_gib = [round(value / 1024**3, 2) for value in free]
+    if min(free) * 2 < max(free):
+        selected = max(range(2), key=free.__getitem__)
+        return {"": selected}, {selected: f"{max(1, int(free[selected] / 1024**3) - 2)}GiB"}, {
+            "strategy": "less_busy_gpu", "selected_gpu": selected, "free_gib_before_load": free_gib}
+    max_memory = {index: f"{max(1, min(13, int(value / 1024**3) - 2))}GiB"
+                  for index, value in enumerate(free)}
+    return "balanced", max_memory, {"strategy": "balanced", "free_gib_before_load": free_gib}
 
 
 def seed_previous_results(root: Path, output: Path) -> dict | None:

@@ -14,7 +14,7 @@ from constitution_evidence.generation import GenerationError
 from constitution_evidence.store import digest, read_jsonl, write_jsonl
 from scripts.kaggle_final_runtime import (
     MODEL_REVISION, PREFILL_CHUNK_TOKENS, ROPE_SCALING, TransformersGenerator,
-    load_model, require_dual_gpu, seed_previous_results,
+    choose_gpu_placement, load_model, require_dual_gpu, seed_previous_results,
 )
 
 
@@ -149,6 +149,7 @@ class KaggleFinalTests(unittest.TestCase):
         cuda = types.SimpleNamespace(is_available=lambda: True, device_count=lambda: 2,
                                      get_device_properties=lambda index: types.SimpleNamespace(
                                          total_memory=15 * 1024**3),
+                                     mem_get_info=lambda index: (15 * 1024**3, 15 * 1024**3),
                                      get_device_name=lambda index: f"T4-{index}")
         fake_torch = types.ModuleType("torch")
         fake_torch.cuda = cuda
@@ -177,6 +178,24 @@ class KaggleFinalTests(unittest.TestCase):
         self.assertEqual(calls["device_map"], "balanced")
         self.assertEqual(calls["max_memory"], {0: "13GiB", 1: "13GiB"})
         self.assertEqual(provenance["gpus"], ["T4-0", "T4-1"])
+        cuda.mem_get_info = lambda index: (
+            (3 * 1024**3, 15 * 1024**3) if index == 0 else (14 * 1024**3, 15 * 1024**3))
+        loaded.hf_device_map = {"": 1}
+        with patch.dict(sys.modules, {"torch": fake_torch, "transformers": fake_transformers,
+                                      "huggingface_hub": fake_hub}):
+            _, model, provenance = load_model()
+        self.assertIs(model, loaded)
+        self.assertEqual(calls["device_map"], {"": 1})
+        self.assertEqual(provenance["placement"]["selected_gpu"], 1)
+
+    def test_placement_avoids_a_t4_occupied_by_another_process(self):
+        cuda = types.SimpleNamespace(mem_get_info=lambda index: (
+            (3 * 1024**3, 15 * 1024**3) if index == 0 else (14 * 1024**3, 15 * 1024**3)))
+        device_map, max_memory, provenance = choose_gpu_placement(types.SimpleNamespace(cuda=cuda))
+        self.assertEqual(device_map, {"": 1})
+        self.assertEqual(max_memory, {1: "12GiB"})
+        self.assertEqual(provenance["strategy"], "less_busy_gpu")
+        self.assertEqual(provenance["selected_gpu"], 1)
 
     def test_notebook_runs_gpu_evaluation_in_a_child_process(self):
         notebook = json.loads((Path(__file__).parents[1] / "notebooks/kaggle_final.ipynb").read_text())
