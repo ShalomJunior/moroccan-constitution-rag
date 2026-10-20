@@ -160,8 +160,11 @@ def assert_reserved_test_ready(release_manifest_path: Path, questions_path: Path
 
 def run_reserved_test(release_manifest_path: Path, questions_path: Path, corpus_manifest_path: Path,
                       output_dir: Path, runners: dict, expected_families: int = 90,
-                      fatal_error_types: tuple[str, ...] = ()) -> dict:
+                      fatal_error_types: tuple[str, ...] = (),
+                      max_new_fulltext: int | None = None) -> dict:
     """Execute fixed system adapters once per question, saving each result atomically."""
+    if max_new_fulltext is not None and max_new_fulltext < 1:
+        raise ValueError("max_new_fulltext must be positive")
     frozen = assert_reserved_test_ready(release_manifest_path, questions_path, corpus_manifest_path)
     if set(runners) != set(FINAL_SYSTEMS):
         raise ValueError("Reserved test needs exactly the three frozen systems")
@@ -195,10 +198,13 @@ def run_reserved_test(release_manifest_path: Path, questions_path: Path, corpus_
         done = {row["question_id"]: row for row in rows}
         if len(done) != len(rows) or not set(done) <= set(expected["question_ids"]):
             raise ValueError(f"{system} has duplicate or unknown question IDs")
+        new_rows = 0
         for question in questions:
             qid = question["question_id"]
             if qid in done:
                 continue
+            if system == "fulltext" and max_new_fulltext is not None and new_rows >= max_new_fulltext:
+                break
             started = time.perf_counter()
             try:
                 result = runners[system](question["question"])
@@ -218,12 +224,15 @@ def run_reserved_test(release_manifest_path: Path, questions_path: Path, corpus_
                          "answer": answer, "context_passage_ids": context_ids,
                          "error": error, "elapsed_ms": round((time.perf_counter() - started) * 1000, 1)}
             write_jsonl(path, [done[item] for item in expected["question_ids"] if item in done])
+            new_rows += 1
             if error and error["type"] in fatal_error_types:
                 raise RuntimeError(
                     f"Stopped after {system}/{qid}: {error['type']}. "
                     "The saved row and earlier results are available for export."
                 )
-        summary[system] = {"completed": len(done), "errors": sum(row["error"] is not None for row in done.values()),
+        summary[system] = {"completed": len(done),
+                           "errors": sum(row["error"] is not None for row in done.values()),
                            "answers_path": str(path)}
-    return {"status": "complete", "systems": summary, "questions": len(questions),
+    status = "complete" if all(item["completed"] == len(questions) for item in summary.values()) else "partial"
+    return {"status": status, "systems": summary, "questions": len(questions),
             "run_manifest_sha256": digest(run_manifest.read_bytes())}

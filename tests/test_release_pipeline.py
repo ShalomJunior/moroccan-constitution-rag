@@ -148,6 +148,35 @@ class ReleasePipelineTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(len(calls), 3)
 
+    def test_reserved_fulltext_batches_resume_until_all_questions_are_done(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            questions, passages = root / "questions.jsonl", root / "passages.jsonl"
+            corpus, frozen, output = root / "corpus.json", root / "release.json", root / "run"
+            write_jsonl(questions, [{"question_id": f"q{n}", "family_id": f"f{n}", "split": "test",
+                                     "review_status": "reviewed", "question": f"Question {n} ?"}
+                                    for n in range(3)])
+            write_jsonl(passages, [{"passage_id": "p1", "canonical_text": "Texte.", "text_hash": "hash"}])
+            from constitution_evidence.store import digest
+            corpus.write_text(json.dumps({"passages_hash": digest(passages.read_bytes())}))
+            frozen.write_text('{"status":"ready"}')
+            calls = {name: [] for name in ("fulltext", "bm25_rag", "selected_pipeline")}
+            def runner(name):
+                def answer(question):
+                    calls[name].append(question)
+                    return {"answer": {"status": "insufficient_evidence", "claims": [], "sources": []},
+                            "context_passage_ids": ["p1"]}
+                return answer
+            systems = {name: runner(name) for name in calls}
+            with patch("constitution_evidence.release.assert_reserved_test_ready", return_value={"status": "ready"}):
+                statuses = [run_reserved_test(frozen, questions, corpus, output, systems,
+                                              expected_families=3, max_new_fulltext=1)["status"]
+                            for _ in range(3)]
+            self.assertEqual(statuses, ["partial", "partial", "complete"])
+            self.assertEqual(len(read_jsonl(output / "fulltext/answers.jsonl")), 3)
+            self.assertEqual({name: len(seen) for name, seen in calls.items()},
+                             {"fulltext": 3, "bm25_rag": 3, "selected_pipeline": 3})
+
     def test_fatal_gpu_error_is_saved_once_and_stops_run(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

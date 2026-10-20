@@ -1,8 +1,8 @@
-"""Run the pinned PyTorch evaluation without XLA claiming the Kaggle GPUs."""
+"""Run one resumable batch without XLA claiming the Kaggle GPUs."""
 
+import argparse
 import json
 import os
-import sys
 from pathlib import Path
 
 # Kaggle includes JAX and TensorFlow. Keep their backends off the CUDA devices
@@ -16,6 +16,9 @@ from scripts.kaggle_final_runtime import execute  # noqa: E402
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        raise SystemExit("Usage: python -m scripts.kaggle_final_worker ROOT")
-    print(json.dumps(execute(Path(sys.argv[1]).resolve()), ensure_ascii=False, indent=2))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("root", type=Path)
+    parser.add_argument("--batch-size", type=int, default=25)
+    args = parser.parse_args()
+    print(json.dumps(execute(args.root.resolve(), max_new_fulltext=args.batch_size),
+                     ensure_ascii=False, indent=2))
