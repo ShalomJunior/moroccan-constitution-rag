@@ -2,7 +2,7 @@
 
 Recherche documentaire dans la version française de la Constitution marocaine de 2011. L’application retrouve des passages, affiche leur page dans le [PDF institutionnel](https://maroc.ma/sites/default/files/2024-10/constitution_du_1er_juillet_2011.pdf) et peut produire une réponse avec des citations vérifiées. Elle ne couvre pas la version arabe.
 
-La version `1.0.3` associe l'application française à une [évaluation finale](reports/final-evaluation.md) de trois systèmes Qwen3-4B sur 90 questions réservées. Les erreurs mesurées sont importantes ; cette version n'est pas une édition juridique officielle ni un outil de conseil juridique. Le mode Groq de l'interface n'est pas le modèle évalué dans cette étude.
+La version `1.0.4` associe l'application française à une [évaluation finale](reports/final-evaluation.md) de trois systèmes Qwen3-4B sur 90 questions réservées. Les erreurs mesurées sont importantes ; cette version n'est pas une édition juridique officielle ni un outil de conseil juridique. Le mode Groq de l'interface n'est pas le modèle évalué dans cette étude.
 
 ## Démarrer
 
@@ -48,6 +48,6 @@ uv run --frozen constitution-evidence publication-audit
 docker compose config --quiet
 ```
 
-Le [guide de reproduction](docs/reproduction.md) décrit la source, les commandes et les contrôles. Le [data card](docs/data-card.md) précise la provenance du corpus. Le [rapport d'évaluation finale](reports/final-evaluation.md) présente le test réservé de 90 questions et ses limites. Aucune mesure générale de fiabilité juridique n'est revendiquée pour `1.0.3`.
+Le [guide de reproduction](docs/reproduction.md) décrit la source, les commandes et les contrôles. Le [data card](docs/data-card.md) précise la provenance du corpus. Le [rapport d'évaluation finale](reports/final-evaluation.md) présente le test réservé de 90 questions et ses limites. Aucune mesure générale de fiabilité juridique n'est revendiquée pour `1.0.4`.
 
 Le code est sous [licence MIT](LICENSE). Les droits du PDF source et des textes qui en dérivent doivent être examinés séparément avant toute redistribution.

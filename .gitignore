@@ -19,6 +19,9 @@ docs/demo-script.md
 docs/presentation.md
 docs/benchmark-status.md
 docs/project-scope.md
+docs/ocr-review.md
+docs/annotation-guide.md
+reports/external-review-reconciliation.md
 data/annotations/questions.jsonl
 docs/experiments.md
 docs/release-and-judgments.md
