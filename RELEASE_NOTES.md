@@ -1,3 +1,9 @@
+# Version 1.0.2 — documentation de reproduction
+
+Le guide de reproduction utilise désormais la commande de score correspondant à la revue finale catégorielle. Les mentions historiques d’une évaluation encore à faire ont été corrigées. Aucun résultat expérimental ni comportement de l’application ne change.
+
+## Historique
+
 # Version 1.0.1 — revue finale corrigée
 
 La revue finale d'un second relecteur remplace les jugements précédents. Sur 205 réponses sans erreur technique, 147 sont acceptables, dont 126 sans réserve et 21 avec réserves mineures. Les 65 erreurs techniques restent des échecs. Sur les 90 questions du test réservé, BM25 obtient 51 succès sans réserve et 56 réponses acceptables ; l'hybride 50 et 57 ; le texte intégral 25 et 34. Les intervalles appariés ne démontrent pas de gain de l'hybride face à BM25. Le [rapport](reports/final-evaluation.md) expose les catégories, le calcul et les limites.
