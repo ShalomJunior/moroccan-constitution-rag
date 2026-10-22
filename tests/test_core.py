@@ -79,6 +79,18 @@ class Contracts(unittest.TestCase):
             with self.assertRaises(ValueError):
                 evaluate(question_path, passage_path, "dev", run, k=1)
 
+    def test_out_of_scope_label_has_no_complete_evidence_score(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            passages, questions, run = base / "passages.jsonl", base / "questions.jsonl", base / "run"
+            write_jsonl(passages, self.passages)
+            write_jsonl(questions, [{"question_id": "q1", "family_id": "q1", "split": "validation",
+                                     "question": "Quel montant exact ?", "expected_status": "out_of_scope",
+                                     "relevant_articles": [2], "relevant_spans": [{"passage_id": self.passages[-1]["passage_id"],
+                                     "char_start": 0, "char_end": 10}], "acceptable_evidence_sets": []}])
+            result = evaluate(questions, passages, "validation", run, k=2)
+            self.assertIsNone(result["complete_evidence"])
+
     def test_legacy_article_proxy_is_not_called_complete_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             run = Path(directory)

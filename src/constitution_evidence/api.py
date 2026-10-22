@@ -44,6 +44,9 @@ class AskResponse(BaseModel):
     request_id: str
     retrieval_strategy: str
     dialogue: dict
+    retrieved_passages: list[dict] = Field(default_factory=list)
+    retrieved_passage_count: int = 0
+    review_status: str | None = None
 
 @lru_cache(maxsize=2)
 def _load_corpus(manifest_hash: str):
@@ -56,6 +59,16 @@ def _load_corpus(manifest_hash: str):
         raise ValueError("Passages hash does not match the active manifest")
     passages = read_jsonl(passage_path)
     return BM25(passages), manifest, {p["passage_id"]: p for p in passages}
+
+
+@lru_cache(maxsize=2)
+def _load_articles(manifest_hash: str):
+    _, manifest, _ = _load_corpus(manifest_hash)
+    article_path, _, _ = corpus_paths()
+    if digest(article_path.read_bytes()) != manifest["corpus_hash"]:
+        raise ValueError("Articles hash does not match the active manifest")
+    rows = read_jsonl(article_path)
+    return manifest, {row["article_number"]: row for row in rows}
 
 def corpus():
     _, _, manifest_path = corpus_paths()
@@ -94,9 +107,23 @@ def health():
 def version():
     try:
         _, manifest, _ = corpus()
-        return {"app_version": __version__, "corpus_hash": manifest["corpus_hash"], "edition_id": manifest["edition_id"]}
+        return {"app_version": __version__, "corpus_hash": manifest["corpus_hash"],
+                "edition_id": manifest["edition_id"], "review_status": manifest.get("review_status")}
     except (FileNotFoundError, ValueError):
-        return {"app_version": __version__, "corpus_hash": None}
+        return {"app_version": __version__, "corpus_hash": None, "review_status": None}
+
+
+def _retrieved_passages(hits: list[dict], context: list[dict], source_url: str) -> list[dict]:
+    supplied = {passage["passage_id"] for passage in context}
+    rows = []
+    for rank, hit in enumerate(hits, 1):
+        preview = " ".join(hit["canonical_text"].split())
+        rows.append({"rank": rank, "passage_id": hit["passage_id"],
+                     "article_number": hit["article_number"], "page_spans": hit.get("page_spans", []),
+                     "source_url": source_url, "retriever": hit.get("retriever"),
+                     "included_in_context": hit["passage_id"] in supplied,
+                     "preview": preview[:240] + ("…" if len(preview) > 240 else "")})
+    return rows
 
 @app.get("/capabilities")
 def capabilities():
@@ -109,6 +136,34 @@ def capabilities():
     except (OSError, ValueError):
         local_available = False
     return {"local_generation_available": local_available}
+
+
+@app.get("/articles")
+def articles():
+    try:
+        _, _, manifest_path = corpus_paths()
+        manifest, records = _load_articles(digest(manifest_path.read_bytes()))
+    except (FileNotFoundError, ValueError, KeyError) as exc:
+        raise HTTPException(503, "corpus_unavailable") from exc
+    return {"edition_id": manifest["edition_id"], "review_status": manifest.get("review_status"),
+            "articles": [{"article_number": number, "page_spans": record["page_spans"]}
+                         for number, record in sorted(records.items())]}
+
+
+@app.get("/articles/{number}")
+def article(number: int):
+    if not 0 <= number <= 180:
+        raise HTTPException(404, "Unknown article")
+    try:
+        _, _, manifest_path = corpus_paths()
+        manifest, records = _load_articles(digest(manifest_path.read_bytes()))
+    except (FileNotFoundError, ValueError, KeyError) as exc:
+        raise HTTPException(503, "corpus_unavailable") from exc
+    record = records.get(number)
+    if record is None:
+        raise HTTPException(404, "Unknown article")
+    return {**record, "source_url": manifest["source_url"], "edition_id": manifest["edition_id"],
+            "review_status": manifest.get("review_status")}
 
 @app.post("/ask", response_model=AskResponse)
 def ask(request: AskRequest):
@@ -126,7 +181,8 @@ def ask(request: AskRequest):
                 "limitations": "Précisez le numéro de l'article pour continuer.",
                 "dialogue": {**dialogue, "next_article_numbers": []},
                 "request_id": request_id, "retrieval_strategy": request.strategy,
-                "reference_expansion": request.expand_references, "decomposition": None}
+                "reference_expansion": request.expand_references, "decomposition": None,
+                "retrieved_passages": [], "retrieved_passage_count": 0, "review_status": None}
     query = dialogue["resolved_question"]
     try:
         _, _, manifest_path = corpus_paths()
@@ -189,6 +245,8 @@ def ask(request: AskRequest):
         decomposition["context_passage_ids"] = [hit["passage_id"] for hit in context]
     answer["retrieval_strategy"] = request.strategy
     answer["retrieved_passage_count"] = len(hits)
+    answer["retrieved_passages"] = _retrieved_passages(hits, context, manifest["source_url"])
+    answer["review_status"] = manifest.get("review_status")
     answer["reference_expansion"] = request.expand_references
     answer["decomposition"] = decomposition
     answer["dialogue"] = {**dialogue, "next_article_numbers": next_articles(query, answer["sources"])}

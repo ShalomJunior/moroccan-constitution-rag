@@ -55,6 +55,7 @@ def _main(argv=None):
     p = sub.add_parser("select-validation")
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
     p.add_argument("--policy", type=Path, default=ROOT / "configs/selection_policy.json")
+    p.add_argument("--output", type=Path, default=ROOT / "runs/validation-selection.json")
     p.add_argument("run_ids", nargs="+")
     p = sub.add_parser("oracle-run")
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
@@ -80,6 +81,15 @@ def _main(argv=None):
     p.add_argument("--selection", type=Path, default=ROOT / "runs/validation-selection.json")
     p.add_argument("--systems", type=Path, default=ROOT / "configs/final_systems.json")
     p.add_argument("--output", type=Path, default=ROOT / "runs/release-candidate/manifest.json")
+    p = sub.add_parser("audit-questions")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
+    p = sub.add_parser("question-review-packet")
+    p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
+    p.add_argument("--split", choices=["dev", "validation", "test"], default="dev")
+    p.add_argument("--output", type=Path, default=ROOT / "reports/question-review.md")
+    p = sub.add_parser("locate-span")
+    p.add_argument("passage_id")
+    p.add_argument("quote")
     p = sub.add_parser("test-preflight")
     p.add_argument("--questions", type=Path, default=ROOT / "data/annotations/questions.jsonl")
     p.add_argument("--release-manifest", type=Path, default=ROOT / "runs/release-candidate/manifest.json")
@@ -222,6 +232,10 @@ def _main(argv=None):
         if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", item) for item in args.run_ids):
             raise ValueError("Invalid run ID")
         result = select_validation(args.questions, [ROOT / "runs" / item for item in args.run_ids], args.policy)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        if args.output.exists() and json.loads(args.output.read_text()) != result:
+            raise ValueError("Selection output already exists with different results")
+        args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     elif args.command == "oracle-run":
         from .experiments import run_oracle
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.run_id):
@@ -268,6 +282,16 @@ def _main(argv=None):
             raise ValueError("Run ID must be a simple name of at most 80 characters")
         result = run_calibration(args.questions, passages, manifest, ROOT / "runs" / args.run_id,
                                  max_new=args.max_new, pause_seconds=args.pause_seconds)
+    elif args.command == "audit-questions":
+        from .question_audit import audit_questions
+        result = audit_questions(args.questions, passages, json.loads(manifest.read_text())["corpus_hash"])
+    elif args.command == "question-review-packet":
+        from .question_packet import write_question_packet
+        source_url = json.loads((ROOT / "configs/corpus.json").read_text())["source_url"]
+        result = write_question_packet(args.questions, articles, passages, source_url, args.output, args.split)
+    elif args.command == "locate-span":
+        from .question_spans import locate_span
+        result = locate_span(passages, json.loads(manifest.read_text()), args.passage_id, args.quote)
     elif args.command == "release-readiness":
         from .release import release_readiness
         result = release_readiness(args.questions, manifest, args.selection, args.systems)

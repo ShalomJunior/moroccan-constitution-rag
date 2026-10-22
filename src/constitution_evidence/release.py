@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 from .store import ROOT, digest, read_jsonl, write_jsonl
 from .evidence import validate_answer
+from .question_audit import audit_questions
 
 EXPECTED_FAMILIES = {"dev": 45, "validation": 45, "test": 90}
 FINAL_SYSTEMS = ("fulltext", "bm25_rag", "selected_pipeline")
@@ -24,6 +25,10 @@ def release_readiness(questions_path: Path, corpus_manifest_path: Path,
     reasons = []
     corpus = json.loads(corpus_manifest_path.read_text())
     questions = read_jsonl(questions_path) if questions_path.exists() else []
+    question_audit = audit_questions(questions_path, corpus_manifest_path.parent / "passages.jsonl",
+                                     corpus.get("corpus_hash"))
+    if question_audit["status"] != "structurally_complete":
+        reasons.append("Question benchmark structural audit is incomplete")
     if corpus.get("review_status") != "reviewed":
         reasons.append("Corpus is not reviewed")
     review_path = repo_root / "data/annotations/corpus-review.jsonl"
@@ -59,6 +64,8 @@ def release_readiness(questions_path: Path, corpus_manifest_path: Path,
         reasons.append("Validated retrieval selection is missing")
     elif selection.get("questions_sha256") != digest(questions_path.read_bytes()):
         reasons.append("Selection does not match the frozen questions")
+    elif selection.get("policy_sha256") != digest((repo_root / "configs/selection_policy.json").read_bytes()):
+        reasons.append("Selection policy changed after validation")
     systems = json.loads(systems_path.read_text()) if systems_path.exists() else {}
     if set(systems) != set(FINAL_SYSTEMS):
         reasons.append("Three final system configurations are not fixed")
@@ -71,6 +78,22 @@ def release_readiness(questions_path: Path, corpus_manifest_path: Path,
         if len({systems[name].get("model") for name in FINAL_SYSTEMS}) != 1 or any(
                 systems[name].get("prompt_sha256") != prompt_hash() for name in FINAL_SYSTEMS):
             reasons.append("Final systems must use one model and the current Qwen prompt")
+    if selection.get("selected_retrieval_run") and set(systems) == set(FINAL_SYSTEMS):
+        selected_run = selection["selected_retrieval_run"]
+        candidates = [item for item in selection.get("candidates", []) if item.get("run") == selected_run]
+        manifest_path = repo_root / "runs" / selected_run / "manifest.json"
+        if len(candidates) != 1 or not manifest_path.exists():
+            reasons.append("Selected retrieval run is unavailable")
+        else:
+            run = json.loads(manifest_path.read_text())
+            chosen = systems["selected_pipeline"]
+            if (chosen.get("strategy") != candidates[0].get("method") or
+                    chosen.get("strategy") != run.get("method") or
+                    chosen.get("top_k", 5) != run.get("article_k") or
+                    chosen.get("max_context_chars", 7000) != run.get("context_chars") or
+                    run.get("questions_sha256") != selection.get("questions_sha256") or
+                    run.get("passages_sha256") != digest((corpus_manifest_path.parent / "passages.jsonl").read_bytes())):
+                reasons.append("Final pipeline differs from the selected validation run")
     if not analysis_plan_path.exists():
         reasons.append("Analysis plan is missing")
     lock_path = repo_root / "uv.lock"
@@ -98,7 +121,7 @@ def release_readiness(questions_path: Path, corpus_manifest_path: Path,
             "analysis_plan_sha256": digest(analysis_plan_path.read_bytes()) if analysis_plan_path.exists() else None,
             "analysis_plan_path": _repo_relative(analysis_plan_path, repo_root),
             "lock_sha256": digest(lock_path.read_bytes()) if lock_path.exists() else None,
-            "family_counts": counts}
+            "family_counts": counts, "question_audit": question_audit}
 
 
 def assert_reserved_test_ready(release_manifest_path: Path, questions_path: Path,
@@ -136,8 +159,12 @@ def assert_reserved_test_ready(release_manifest_path: Path, questions_path: Path
 
 
 def run_reserved_test(release_manifest_path: Path, questions_path: Path, corpus_manifest_path: Path,
-                      output_dir: Path, runners: dict, expected_families: int = 90) -> dict:
+                      output_dir: Path, runners: dict, expected_families: int = 90,
+                      fatal_error_types: tuple[str, ...] = (),
+                      max_new_fulltext: int | None = None) -> dict:
     """Execute fixed system adapters once per question, saving each result atomically."""
+    if max_new_fulltext is not None and max_new_fulltext < 1:
+        raise ValueError("max_new_fulltext must be positive")
     frozen = assert_reserved_test_ready(release_manifest_path, questions_path, corpus_manifest_path)
     if set(runners) != set(FINAL_SYSTEMS):
         raise ValueError("Reserved test needs exactly the three frozen systems")
@@ -171,10 +198,13 @@ def run_reserved_test(release_manifest_path: Path, questions_path: Path, corpus_
         done = {row["question_id"]: row for row in rows}
         if len(done) != len(rows) or not set(done) <= set(expected["question_ids"]):
             raise ValueError(f"{system} has duplicate or unknown question IDs")
+        new_rows = 0
         for question in questions:
             qid = question["question_id"]
             if qid in done:
                 continue
+            if system == "fulltext" and max_new_fulltext is not None and new_rows >= max_new_fulltext:
+                break
             started = time.perf_counter()
             try:
                 result = runners[system](question["question"])
@@ -194,7 +224,15 @@ def run_reserved_test(release_manifest_path: Path, questions_path: Path, corpus_
                          "answer": answer, "context_passage_ids": context_ids,
                          "error": error, "elapsed_ms": round((time.perf_counter() - started) * 1000, 1)}
             write_jsonl(path, [done[item] for item in expected["question_ids"] if item in done])
-        summary[system] = {"completed": len(done), "errors": sum(row["error"] is not None for row in done.values()),
+            new_rows += 1
+            if error and error["type"] in fatal_error_types:
+                raise RuntimeError(
+                    f"Stopped after {system}/{qid}: {error['type']}. "
+                    "The saved row and earlier results are available for export."
+                )
+        summary[system] = {"completed": len(done),
+                           "errors": sum(row["error"] is not None for row in done.values()),
                            "answers_path": str(path)}
-    return {"status": "complete", "systems": summary, "questions": len(questions),
+    status = "complete" if all(item["completed"] == len(questions) for item in summary.values()) else "partial"
+    return {"status": status, "systems": summary, "questions": len(questions),
             "run_manifest_sha256": digest(run_manifest.read_bytes())}

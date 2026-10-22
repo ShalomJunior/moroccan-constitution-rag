@@ -2,7 +2,7 @@
 
 Recherche documentaire dans la version française de la Constitution marocaine de 2011. L’application retrouve des passages, affiche leur page dans le [PDF institutionnel](https://maroc.ma/sites/default/files/2024-10/constitution_du_1er_juillet_2011.pdf) et peut produire une réponse avec des citations vérifiées. Elle ne couvre pas la version arabe.
 
-La version `0.1.0` est une **version applicative**. Elle permet de consulter le corpus et de tester les différents modes de recherche. Elle ne constitue ni une édition juridique officielle ni un système dont la fiabilité a été établie par une évaluation finale.
+La version `1.0.0` associe l'application française à une [évaluation finale](reports/final-evaluation.md) de trois systèmes Qwen3-4B sur 90 questions réservées. Les erreurs mesurées sont importantes ; cette version n'est pas une édition juridique officielle ni un outil de conseil juridique. Le mode Groq de l'interface n'est pas le modèle évalué dans cette étude.
 
 ## Démarrer
 
@@ -34,8 +34,11 @@ Sans Docker : `uv run --frozen --extra api --extra dense --extra groq constituti
 - **Extraits** affiche directement les passages retrouvés. BM25, Dense, Hybride et Hybride avec reranking sont disponibles ; BM25 est le choix par défaut.
 - **Résumé Groq** utilise une clé `GROQ_API_KEY` placée dans le fichier local `.env` ou dans l’environnement du serveur. La question et les extraits sélectionnés sont envoyés au fournisseur. La clé ne va pas au navigateur.
 - **Résumé local** nécessite un [serveur Qwen séparé](docs/local-model.md). L’option est désactivée dans l’interface quand ce serveur est inaccessible ; le conteneur Docker ne le lance pas.
+- **Consulter un article** ouvre directement le préambule ou l'un des 180 articles, avec les pages du PDF source.
 
 Les réponses générées contiennent des citations liées à des passages et à des pages du PDF. Le contrôle automatique vérifie l’identité des citations, **pas** que chaque conclusion découle réellement du texte ni que la réponse est complète. Si les passages fournis ne suffisent pas, le système peut s’abstenir. Les essais de développement et les limites observées sont résumés dans le [bilan des réponses](reports/development-answer-review.md).
+
+La section « Passages retrouvés » reste consultable même lorsqu'un résumé s'abstient. Elle distingue les résultats de recherche des passages effectivement inclus dans le contexte de réponse et permet d'ouvrir le texte complet et la page du PDF.
 
 ## Vérifier et reproduire
 
@@ -45,6 +48,6 @@ uv run --frozen constitution-evidence publication-audit
 docker compose config --quiet
 ```
 
-Le [guide de reproduction](docs/reproduction.md) décrit la source, les commandes et les contrôles. Le [data card](docs/data-card.md) précise la provenance du corpus. Les résultats des petites séries de développement ne remplacent pas une évaluation indépendante : le benchmark de 45 questions de développement, 45 de validation et 90 de test réservé n’est pas terminé. Aucune mesure générale de fiabilité juridique n’est revendiquée pour `0.1.0`.
+Le [guide de reproduction](docs/reproduction.md) décrit la source, les commandes et les contrôles. Le [data card](docs/data-card.md) précise la provenance du corpus. Le [rapport d'évaluation finale](reports/final-evaluation.md) présente le test réservé de 90 questions et ses limites. Aucune mesure générale de fiabilité juridique n'est revendiquée pour `1.0.0`.
 
 Le code est sous [licence MIT](LICENSE). Les droits du PDF source et des textes qui en dérivent doivent être examinés séparément avant toute redistribution.

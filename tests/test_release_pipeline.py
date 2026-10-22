@@ -50,6 +50,43 @@ class ReleasePipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "ready release"):
                 assert_reserved_test_ready(frozen, questions, corpus)
 
+    def test_release_rejects_pipeline_that_differs_from_validation_winner(self):
+        from constitution_evidence.campaign import prompt_hash
+        from constitution_evidence.store import digest
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "configs").mkdir()
+            (root / "runs/winner").mkdir(parents=True)
+            (root / "data/annotations").mkdir(parents=True)
+            (root / "data/processed").mkdir(parents=True)
+            questions = root / "questions.jsonl"
+            write_jsonl(questions, [])
+            passages = root / "data/processed/passages.jsonl"
+            write_jsonl(passages, [])
+            corpus = root / "data/processed/manifest.json"
+            corpus.write_text(json.dumps({"corpus_hash": "c", "review_status": "reviewed"}))
+            (root / "data/annotations/corpus-review.jsonl").write_text("")
+            policy = root / "configs/selection_policy.json"
+            policy.write_text("{}")
+            selection = root / "runs/validation-selection.json"
+            selection.write_text(json.dumps({"status": "ready_for_retrieval_selection",
+                                             "selected_retrieval_run": "winner",
+                                             "questions_sha256": digest(questions.read_bytes()),
+                                             "policy_sha256": digest(policy.read_bytes()),
+                                             "candidates": [{"run": "winner", "method": "hybrid"}]}))
+            (root / "runs/winner/manifest.json").write_text(json.dumps({
+                "method": "hybrid", "article_k": 10, "context_chars": 7000,
+                "questions_sha256": digest(questions.read_bytes()),
+                "passages_sha256": digest(passages.read_bytes())}))
+            systems = root / "configs/final_systems.json"
+            systems.write_text(json.dumps({
+                "fulltext": {"model": "Qwen", "prompt_sha256": prompt_hash(), "context_mode": "fulltext"},
+                "bm25_rag": {"model": "Qwen", "prompt_sha256": prompt_hash(), "strategy": "bm25"},
+                "selected_pipeline": {"model": "Qwen", "prompt_sha256": prompt_hash(),
+                                      "strategy": "dense", "top_k": 10, "max_context_chars": 7000}}))
+            result = release_readiness(questions, corpus, selection, systems, repo_root=root)
+            self.assertIn("Final pipeline differs from the selected validation run", result["reasons"])
+
     def test_blinding_and_family_paired_statistics(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -110,6 +147,58 @@ class ReleasePipelineTests(unittest.TestCase):
                 second = run_reserved_test(frozen, questions, corpus, root / "run", systems, expected_families=1)
             self.assertEqual(first, second)
             self.assertEqual(len(calls), 3)
+
+    def test_reserved_fulltext_batches_resume_until_all_questions_are_done(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            questions, passages = root / "questions.jsonl", root / "passages.jsonl"
+            corpus, frozen, output = root / "corpus.json", root / "release.json", root / "run"
+            write_jsonl(questions, [{"question_id": f"q{n}", "family_id": f"f{n}", "split": "test",
+                                     "review_status": "reviewed", "question": f"Question {n} ?"}
+                                    for n in range(3)])
+            write_jsonl(passages, [{"passage_id": "p1", "canonical_text": "Texte.", "text_hash": "hash"}])
+            from constitution_evidence.store import digest
+            corpus.write_text(json.dumps({"passages_hash": digest(passages.read_bytes())}))
+            frozen.write_text('{"status":"ready"}')
+            calls = {name: [] for name in ("fulltext", "bm25_rag", "selected_pipeline")}
+            def runner(name):
+                def answer(question):
+                    calls[name].append(question)
+                    return {"answer": {"status": "insufficient_evidence", "claims": [], "sources": []},
+                            "context_passage_ids": ["p1"]}
+                return answer
+            systems = {name: runner(name) for name in calls}
+            with patch("constitution_evidence.release.assert_reserved_test_ready", return_value={"status": "ready"}):
+                statuses = [run_reserved_test(frozen, questions, corpus, output, systems,
+                                              expected_families=3, max_new_fulltext=1)["status"]
+                            for _ in range(3)]
+            self.assertEqual(statuses, ["partial", "partial", "complete"])
+            self.assertEqual(len(read_jsonl(output / "fulltext/answers.jsonl")), 3)
+            self.assertEqual({name: len(seen) for name, seen in calls.items()},
+                             {"fulltext": 3, "bm25_rag": 3, "selected_pipeline": 3})
+
+    def test_fatal_gpu_error_is_saved_once_and_stops_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            questions, passages = root / "questions.jsonl", root / "passages.jsonl"
+            corpus, frozen, output = root / "corpus.json", root / "release.json", root / "run"
+            write_jsonl(questions, [{"question_id": "q1", "family_id": "f1", "split": "test",
+                                     "review_status": "reviewed", "question": "Question ?"}])
+            write_jsonl(passages, [{"passage_id": "p1", "canonical_text": "Texte.", "text_hash": "hash"}])
+            from constitution_evidence.store import digest
+            corpus.write_text(json.dumps({"passages_hash": digest(passages.read_bytes())}))
+            frozen.write_text('{"status":"ready"}')
+            def oom(_question):
+                raise type("OutOfMemoryError", (Exception,), {})('CUDA out of memory')
+            systems = {name: oom for name in ("fulltext", "bm25_rag", "selected_pipeline")}
+            with patch("constitution_evidence.release.assert_reserved_test_ready", return_value={"status": "ready"}):
+                with self.assertRaisesRegex(RuntimeError, "Stopped after fulltext/q1"):
+                    run_reserved_test(frozen, questions, corpus, output, systems,
+                                      expected_families=1, fatal_error_types=("OutOfMemoryError",))
+            saved = read_jsonl(output / "fulltext/answers.jsonl")
+            self.assertEqual(len(saved), 1)
+            self.assertEqual(saved[0]["error"]["type"], "OutOfMemoryError")
+            self.assertFalse((output / "bm25_rag/answers.jsonl").exists())
 
 
 if __name__ == "__main__":

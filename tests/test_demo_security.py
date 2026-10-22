@@ -44,6 +44,9 @@ class DemoSecurityTests(unittest.TestCase):
         self.assertIn("textContent = claim.text", html)
         self.assertIn("textContent = passage.canonical_text", html)
         self.assertIn("Des passages ont été retrouvés, mais ils ne permettent pas de répondre", html)
+        self.assertIn("Passages retrouvés par la recherche", html)
+        self.assertIn("preview.textContent = hit.preview", html)
+        self.assertIn("text.textContent = item.canonical_text", html)
         self.assertNotIn("Aucun extrait fourni.", html)
         self.assertNotIn("innerHTML", html)
 
