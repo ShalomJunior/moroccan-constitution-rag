@@ -1,6 +1,6 @@
 # Local generation option
 
-The offline model path uses the official Apache 2.0 [Qwen3 1.7B GGUF](https://huggingface.co/Qwen/Qwen3-1.7B-GGUF) through [llama.cpp's local server](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md). It avoids a paid generation API. The 1.83 GB Q8 model was selected for this machine's 8 GB RAM and CPU only setup; a larger model may swap heavily. This is a capacity choice, not a demonstrated quality winner. The final Qwen3-4B comparison is reported separately in the [final evaluation](../reports/final-evaluation.md); it does not evaluate this local 1.7B server.
+The offline model path uses the official Apache 2.0 [Qwen3 1.7B GGUF](https://huggingface.co/Qwen/Qwen3-1.7B-GGUF) through [llama.cpp's local server](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md). It avoids a paid generation API. The Q8 model file is approximately 1.83 GB. Allow additional RAM for the server and context cache; larger models may require substantial memory on a CPU host. The final Qwen3-4B comparison is reported separately in the [final evaluation](../reports/final-evaluation.md); it does not evaluate this local 1.7B server.
 
 Install llama.cpp from its official instructions, download the model into `data/models/Qwen3-1.7B-Q8_0.gguf`, then run:
 

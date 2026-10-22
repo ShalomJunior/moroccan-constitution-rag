@@ -1,11 +1,13 @@
-# Gitflow for this repository
+# Gitflow
 
-- `main` contains reviewed releases. Tag each published version `vMAJOR.MINOR.PATCH` and attach corpus hash, run manifest, and limitations.
-- `develop` integrates completed work. Open pull requests into `develop` from `feature/<short-name>`; use `fix/<short-name>` for ordinary corrections.
-- `release/<version>` starts from `develop`. For an evaluated `v1.0` release, corpus and validation settings must be frozen and the release gate must pass. A `0.x` application release may ship earlier if its notes state the missing evaluation. Only documentation, reproducibility, and release fixes go here. Merge to `main`, tag, then merge back to `develop`.
-- `hotfix/<short-name>` starts from `main` for a release defect. Merge to both `main` and `develop` and tag a patch release.
-- Protect `main` and `develop` in the remote hosting settings: require CI and review. This setting cannot be encoded in Git history.
+`main` contient les versions publiées et `develop` intègre les fonctionnalités en cours. Les contributions utilisent des pull requests et passent la CI avant intégration.
 
-For each PR, record tests and any corpus, annotation, or benchmark impact. A changed source or correction creates a new corpus hash. Test questions and outputs must not guide prompt or model selection before the final freeze. Large PDFs, OCR language data, and generated runs stay out of Git; their URLs and hashes go in manifests.
+| Branche | Origine | Destination |
+| --- | --- | --- |
+| `feature/<nom>` ou `fix/<nom>` | `develop` | `develop` |
+| `release/<version>` | `develop` | `main`, puis retour vers `develop` |
+| `hotfix/<nom>` | `main` | `main`, puis retour vers `develop` |
 
-Create feature branches from `develop`.
+Chaque version publiée porte un tag `vMAJOR.MINOR.PATCH`. Une pull request décrit le changement, les vérifications effectuées et son éventuel impact sur les données ou l'évaluation. Les réglages du test réservé sont figés avant son exécution ; toute expérience ultérieure est distincte de ce test.
+
+Les clés, PDF téléchargés, modèles, corpus générés, annotations complètes et résultats individuels restent hors du dépôt. Les configurations et les rapports agrégés sont versionnés.
