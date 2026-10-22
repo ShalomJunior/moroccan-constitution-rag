@@ -1,3 +1,11 @@
+# Version 1.0.1 — revue finale corrigée
+
+La revue finale d'un second relecteur remplace les jugements précédents. Sur 205 réponses sans erreur technique, 147 sont acceptables, dont 126 sans réserve et 21 avec réserves mineures. Les 65 erreurs techniques restent des échecs. Sur les 90 questions du test réservé, BM25 obtient 51 succès sans réserve et 56 réponses acceptables ; l'hybride 50 et 57 ; le texte intégral 25 et 34. Les intervalles appariés ne démontrent pas de gain de l'hybride face à BM25. Le [rapport](reports/final-evaluation.md) expose les catégories, le calcul et les limites.
+
+Le script personnel de présentation n'est plus suivi par Git et l'audit de publication bloque son ajout futur. La version 1.0.0 et son historique restent accessibles ; la présente version corrige le rapport actif sans réécrire l'historique.
+
+## Historique
+
 # Version 1.0.0 — application française évaluée
 
 Cette version conserve la recherche documentaire et l'interface française, et publie les résultats agrégés du test réservé Qwen3-4B. Le corpus, les questions et les trois configurations ont été gelés au commit `726abe0632f027dd430e4bac405ca0b66513b8c6` avant l'exécution. La revue aveugle des réponses a été fournie par la personne responsable du projet ; le rapport expose la divergence entre le résumé de cette revue et ses lignes détaillées.

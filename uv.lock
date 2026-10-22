@@ -328,7 +328,7 @@ wheels = [
 
 [[package]]
 name = "constitution-evidence"
-version = "1.0.0"
+version = "1.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "bm25s" },
