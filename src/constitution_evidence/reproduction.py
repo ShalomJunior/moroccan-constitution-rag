@@ -47,12 +47,16 @@ def publication_audit(root: Path = ROOT) -> dict:
     tracked = [Path(item) for item in tracked if item]
     findings = []
     forbidden_exact = {".env", "PROJECT_LOG.md", "data/annotations/test-candidates.jsonl",
+                       "data/annotations/questions.jsonl", "docs/benchmark-status.md", "docs/project-scope.md",
                        "docs/demo-script.md", "docs/presentation.md", "docs/experiments.md", "docs/release-and-judgments.md",
                        "docs/v2-decision-gate.md", "reports/technical-report.md",
                        "reports/installation-and-usability.md"}
     forbidden_prefix = ("data/raw/", "data/ocr/", "data/processed/", "data/models/", "runs/",
                         "constitution-rag/")
     secret = re.compile(rb"(?:AIza[0-9A-Za-z_-]{30,}|(?:gsk_|ghp_|github_pat_)[0-9A-Za-z_-]{20,}|sk-[0-9A-Za-z_-]{20,}|-----BEGIN (?:RSA |EC )?PRIVATE KEY-----)")
+    conversation_link = re.compile(
+        rb"https?://(?:share\.gemini\.google/|gemini\.google\.com/share/|"
+        rb"chatgpt\.com/share/|chat\.openai\.com/share/|claude\.ai/share/)", re.I)
     for relative in tracked:
         name = relative.as_posix()
         if name in forbidden_exact or any(name.startswith(prefix) for prefix in forbidden_prefix):
@@ -64,7 +68,10 @@ def publication_audit(root: Path = ROOT) -> dict:
         if path.stat().st_size > 5_000_000:
             findings.append({"path": name, "issue": "tracked file exceeds 5 MB; review redistribution"})
             continue
-        if secret.search(path.read_bytes()):
+        content = path.read_bytes()
+        if secret.search(content):
             findings.append({"path": name, "issue": "possible credential pattern in tracked file"})
+        if conversation_link.search(content):
+            findings.append({"path": name, "issue": "private conversation link in tracked file"})
     return {"status": "pass" if not findings else "review_required", "tracked_files": len(tracked),
             "findings": findings}

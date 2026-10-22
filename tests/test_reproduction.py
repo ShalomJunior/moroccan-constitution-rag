@@ -72,6 +72,25 @@ class ReproductionTests(unittest.TestCase):
             self.assertEqual(result["status"], "review_required")
             self.assertEqual(result["findings"][0]["path"], "docs/presentation.md")
 
+    def test_publication_audit_flags_private_benchmark_and_notes(self):
+        for name in ("data/annotations/questions.jsonl", "docs/benchmark-status.md", "docs/project-scope.md"):
+            with self.subTest(path=name), tempfile.TemporaryDirectory() as directory:
+                with patch("constitution_evidence.reproduction.subprocess.check_output",
+                           return_value=(name + "\0").encode()):
+                    result = publication_audit(Path(directory))
+                self.assertEqual(result["status"], "review_required")
+
+    def test_publication_audit_detects_conversation_link_without_disclosing_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            url = "https://" + "share." + "gemini.google/private-review"
+            (root / "README.md").write_text(url)
+            with patch("constitution_evidence.reproduction.subprocess.check_output",
+                       return_value=b"README.md\0"):
+                result = publication_audit(root)
+            self.assertEqual(result["status"], "review_required")
+            self.assertNotIn(url, json.dumps(result))
+
 
 if __name__ == "__main__":
     unittest.main()

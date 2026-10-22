@@ -1,4 +1,4 @@
-# Limites de la version 1.0.2
+# Limites de la version 1.0.3
 
 Le projet porte sur une seule source : le PDF français de la Constitution marocaine de 2011. Il ne couvre ni les lois d'application, ni la jurisprudence, ni les changements ultérieurs du droit. Les réponses ne sont pas des conseils juridiques.
 
