@@ -2,7 +2,7 @@
 
 Recherche documentaire dans la version française de la Constitution marocaine de 2011. L’application retrouve des passages, affiche leur page dans le [PDF institutionnel](https://maroc.ma/sites/default/files/2024-10/constitution_du_1er_juillet_2011.pdf) et peut produire une réponse avec des citations vérifiées. Elle ne couvre pas la version arabe.
 
-La version `0.1.0` est une **version applicative**. Elle permet de consulter le corpus et de tester les différents modes de recherche. Elle ne constitue ni une édition juridique officielle ni un système dont la fiabilité a été établie par une évaluation finale.
+La version `0.1.0` est une **version applicative**. Elle permet de consulter le corpus et de tester les différents modes de recherche. Une [évaluation finale distincte](reports/final-evaluation.md) a mesuré trois systèmes Qwen3-4B sur 90 questions françaises réservées. Elle révèle des erreurs importantes et ne fait pas de l'application une édition juridique officielle. Le mode Groq de l'interface n'est pas le modèle évalué dans cette étude.
 
 ## Démarrer
 
@@ -48,6 +48,6 @@ uv run --frozen constitution-evidence publication-audit
 docker compose config --quiet
 ```
 
-Le [guide de reproduction](docs/reproduction.md) décrit la source, les commandes et les contrôles. Le [data card](docs/data-card.md) précise la provenance du corpus. Les résultats des petites séries de développement ne remplacent pas une évaluation indépendante : le benchmark de 45 questions de développement, 45 de validation et 90 de test réservé n’est pas terminé. Aucune mesure générale de fiabilité juridique n’est revendiquée pour `0.1.0`.
+Le [guide de reproduction](docs/reproduction.md) décrit la source, les commandes et les contrôles. Le [data card](docs/data-card.md) précise la provenance du corpus. Le [rapport d'évaluation finale](reports/final-evaluation.md) présente le test réservé de 90 questions et ses limites. Aucune mesure générale de fiabilité juridique n'est revendiquée pour `0.1.0`.
 
 Le code est sous [licence MIT](LICENSE). Les droits du PDF source et des textes qui en dérivent doivent être examinés séparément avant toute redistribution.

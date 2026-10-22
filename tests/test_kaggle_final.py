@@ -199,17 +199,34 @@ class KaggleFinalTests(unittest.TestCase):
         self.assertEqual(provenance["strategy"], "less_busy_gpu")
         self.assertEqual(provenance["selected_gpu"], 1)
 
-    def test_notebook_runs_gpu_evaluation_in_a_child_process(self):
+    def test_notebook_runs_all_remaining_questions_and_exports_saved_rows(self):
         notebook = json.loads((Path(__file__).parents[1] / "notebooks/kaggle_final.ipynb").read_text())
         cell = "".join(notebook["cells"][4]["source"])
-        calls = []
-        root = Path("/kaggle/working/moroccan-constitution-rag")
-        command = types.SimpleNamespace(run=lambda *args, **kwargs: calls.append((args, kwargs)))
-        exec(cell, {"subprocess": command, "sys": types.SimpleNamespace(executable="python"),
-                    "ROOT": root})
-        self.assertEqual(calls, [((["python", "-m", "scripts.kaggle_final_worker", str(root),
-                                   "--batch-size", "25"],),
-                                  {"check": True, "cwd": root})])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            answers = root / "runs/final-reserved-qwen4b-transformers/fulltext/answers.jsonl"
+            answers.parent.mkdir(parents=True)
+            answers.write_text('{"question_id":"test-001"}\n')
+            for returncode in (0, 1):
+                calls = []
+                exports = []
+                command = types.SimpleNamespace(run=lambda *args, **kwargs: (
+                    calls.append((args, kwargs)) or types.SimpleNamespace(returncode=returncode)))
+                fake_runtime = types.ModuleType("scripts.kaggle_final_runtime")
+                fake_runtime.export_results = lambda *args: (
+                    exports.append(args) or {"archive": str(args[1])})
+                with patch.dict(sys.modules, {"scripts.kaggle_final_runtime": fake_runtime}):
+                    if returncode:
+                        with self.assertRaisesRegex(RuntimeError, "worker exited"):
+                            exec(cell, {"subprocess": command, "sys": types.SimpleNamespace(executable="python"),
+                                        "ROOT": root, "Path": Path, "json": json})
+                    else:
+                        exec(cell, {"subprocess": command, "sys": types.SimpleNamespace(executable="python"),
+                                    "ROOT": root, "Path": Path, "json": json})
+                self.assertEqual(calls, [((["python", "-m", "scripts.kaggle_final_worker", str(root),
+                                           "--batch-size", "90"],),
+                                          {"cwd": root})])
+                self.assertEqual(exports, [(root, Path("/kaggle/working/constitution-final-results.zip"))])
 
     def test_saved_notebook_installs_without_requiring_a_kernel_restart(self):
         notebook = json.loads((Path(__file__).parents[1] / "notebooks/kaggle_final.ipynb").read_text())
