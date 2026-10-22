@@ -47,7 +47,7 @@ def publication_audit(root: Path = ROOT) -> dict:
     tracked = [Path(item) for item in tracked if item]
     findings = []
     forbidden_exact = {".env", "PROJECT_LOG.md", "data/annotations/test-candidates.jsonl",
-                       "docs/demo-script.md", "docs/experiments.md", "docs/release-and-judgments.md",
+                       "docs/demo-script.md", "docs/presentation.md", "docs/experiments.md", "docs/release-and-judgments.md",
                        "docs/v2-decision-gate.md", "reports/technical-report.md",
                        "reports/installation-and-usability.md"}
     forbidden_prefix = ("data/raw/", "data/ocr/", "data/processed/", "data/models/", "runs/",

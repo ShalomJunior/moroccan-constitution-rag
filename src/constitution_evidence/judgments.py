@@ -123,3 +123,112 @@ def score_judgments(mapping_path: Path, judgments_path: Path, replications: int 
             "families": len(families), "replications": replications, "seed": seed,
             "mapping_sha256": digest(mapping_path.read_bytes()),
             "judgments_sha256": digest(judgments_path.read_bytes())}
+
+
+def score_review_verdicts(packet_path: Path, mapping_path: Path, reviewed_path: Path,
+                          replications: int = 2000, seed: int = 20261018) -> dict:
+    """Score a categorical blind review without inventing four-criterion labels.
+
+    Clean success requires a fully correct answer or a justified abstention.
+    A response with minor issues may be acceptable, but is not clean success.
+    Technical errors score zero on both measures.
+    """
+    if not 100 <= replications <= 10000:
+        raise ValueError("Bootstrap replications must be between 100 and 10000")
+    packets = read_jsonl(packet_path)
+    mapping = read_jsonl(mapping_path)
+    reviews = read_jsonl(reviewed_path)
+    packet_by_id = {row["blind_id"]: row for row in packets}
+    mapping_by_id = {row["blind_id"]: row for row in mapping}
+    review_by_id = {row["blind_id"]: row for row in reviews}
+    if (len(packet_by_id) != len(packets) or len(mapping_by_id) != len(mapping)
+            or len(review_by_id) != len(reviews) or set(packet_by_id) != set(mapping_by_id)):
+        raise ValueError("Blind packet and mapping IDs are incomplete or duplicated")
+    nontechnical = {blind_id for blind_id, row in mapping_by_id.items()
+                    if not row["technical_error"]}
+    if set(review_by_id) != nontechnical:
+        raise ValueError("Reviews must cover exactly the responses without technical errors")
+
+    allowed = {"correct", "correct_minor_issues", "abstention_correct",
+               "partially_correct", "incorrect", "non_answer", "abstention_wrong"}
+    clean = {"correct", "abstention_correct"}
+    acceptable = clean | {"correct_minor_issues"}
+    systems = sorted({row["system"] for row in mapping})
+    if systems != ["bm25_rag", "fulltext", "selected_pipeline"]:
+        raise ValueError("Expected exactly the three frozen final systems")
+    families = sorted({row["family_id"] for row in mapping})
+    if any(sum(row["system"] == system and row["family_id"] == family
+               for row in mapping) != 1 for system in systems for family in families):
+        raise ValueError("Each system must cover every family exactly once")
+
+    values = {system: {} for system in systems}
+    summaries = {}
+    for system in systems:
+        rows = [row for row in mapping if row["system"] == system]
+        verdict_counts = {verdict: 0 for verdict in sorted(allowed)}
+        technical = answered = clean_count = acceptable_count = unacceptable_answers = 0
+        for meta in rows:
+            blind_id = meta["blind_id"]
+            packet = packet_by_id[blind_id]
+            if (packet["question_id"] != meta["question_id"] or
+                    packet["family_id"] != meta["family_id"] or
+                    packet["technical_error"] != meta["technical_error"] or
+                    packet["status"] != meta["status"]):
+                raise ValueError(f"Packet and mapping disagree for {blind_id}")
+            if meta["technical_error"]:
+                technical += 1
+                values[system][meta["family_id"]] = {"clean": 0, "acceptable": 0}
+                continue
+            reviewed = review_by_id[blind_id]
+            if {key: value for key, value in reviewed.items() if key != "review"} != packet:
+                raise ValueError(f"Reviewed response differs from blind packet: {blind_id}")
+            judgment = reviewed.get("review")
+            verdict = judgment.get("verdict") if isinstance(judgment, dict) else None
+            if verdict not in allowed or type(judgment.get("acceptable")) is not bool:
+                raise ValueError(f"Invalid review verdict for {blind_id}")
+            if judgment["acceptable"] != (verdict in acceptable):
+                raise ValueError(f"Verdict and acceptability disagree for {blind_id}")
+            if any(type(judgment.get(key)) is not bool for key in
+                   ("quotes_verified_against_pdf", "citation_metadata_ok")):
+                raise ValueError(f"Missing citation review flags for {blind_id}")
+            if verdict.startswith("abstention_") != (meta["status"] == "insufficient_evidence"):
+                raise ValueError(f"Verdict and answer status disagree for {blind_id}")
+            is_answered = meta["status"] in {"answered", "partially_answered"}
+            answered += is_answered
+            verdict_counts[verdict] += 1
+            clean_count += verdict in clean
+            acceptable_count += judgment["acceptable"]
+            unacceptable_answers += is_answered and not judgment["acceptable"]
+            values[system][meta["family_id"]] = {
+                "clean": int(verdict in clean), "acceptable": int(judgment["acceptable"])}
+        summaries[system] = {
+            "questions": len(rows), "technical_errors": technical,
+            "clean_success": clean_count / len(rows), "clean_success_n": clean_count,
+            "acceptable": acceptable_count / len(rows), "acceptable_n": acceptable_count,
+            "substantive_coverage": answered / len(rows), "answered_n": answered,
+            "unacceptable_among_answers": unacceptable_answers / answered if answered else None,
+            "unacceptable_answers_n": unacceptable_answers,
+            "verdict_counts": {key: value for key, value in verdict_counts.items() if value}}
+
+    randomizer = random.Random(seed)
+    paired = {}
+    for metric in ("clean", "acceptable"):
+        for index, left in enumerate(systems):
+            for right in systems[index + 1:]:
+                differences = {family: values[right][family][metric] - values[left][family][metric]
+                               for family in families}
+                samples = sorted(sum(differences[randomizer.choice(families)] for _ in families)
+                                 / len(families) for _ in range(replications))
+                paired[f"{right}-minus-{left}:{metric}"] = {
+                    "n_families": len(families),
+                    "delta": sum(differences.values()) / len(families),
+                    "ci95": [samples[int(.025 * (replications - 1))],
+                             samples[int(.975 * (replications - 1))]]}
+    return {"systems": summaries, "paired": paired, "families": len(families),
+            "replications": replications, "seed": seed,
+            "clean_rule": "correct or abstention_correct; technical errors fail",
+            "acceptable_rule": "correct, correct_minor_issues, or abstention_correct; technical errors fail",
+            "risk_note": "Four separate semantic criteria were not supplied; prior risk_among_answers is not recomputed",
+            "packets_sha256": digest(packet_path.read_bytes()),
+            "mapping_sha256": digest(mapping_path.read_bytes()),
+            "reviews_sha256": digest(reviewed_path.read_bytes())}
