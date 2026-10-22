@@ -1,4 +1,12 @@
-# Version 0.1.0 — application française
+# Version 1.0.0 — application française évaluée
+
+Cette version conserve la recherche documentaire et l'interface française, et publie les résultats agrégés du test réservé Qwen3-4B. Le corpus, les questions et les trois configurations ont été gelés au commit `726abe0632f027dd430e4bac405ca0b66513b8c6` avant l'exécution. La revue aveugle des réponses a été fournie par la personne responsable du projet ; le rapport expose la divergence entre le résumé de cette revue et ses lignes détaillées.
+
+Sur 90 questions, BM25 RAG et le pipeline hybride sélectionné sur validation obtiennent chacun 51 succès stricts ; le texte intégral en obtient 25. Les erreurs techniques sont respectivement 11, 19 et 35. Le [rapport](reports/final-evaluation.md) détaille les intervalles appariés, les échecs et les limites. Le résultat ne démontre pas de gain de l'hybride sur BM25. Ces chiffres concernent les systèmes Qwen figés, pas le mode Groq de l'interface, et ne certifient pas un usage juridique autonome.
+
+Le PDF, le corpus généré, les questions et réponses du test, les jugements, les clés et les poids du modèle restent hors du dépôt. L'acquisition du PDF institutionnel et la reconstruction locale sont décrites dans le [guide](docs/reproduction.md). Le code de la version passe les tests hors ligne, l'audit de publication et la configuration Docker ; CI réinstalle depuis un clone propre. La révision d'évaluation reste distincte des modifications de rapport et de versionnage qui ont suivi le test.
+
+## Historique : version 0.1.0 — application française
 
 Cette version permet de rechercher dans le texte français de la Constitution marocaine de 2011 et d'ouvrir, pour chaque citation, la page correspondante du PDF institutionnel.
 

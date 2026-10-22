@@ -10,4 +10,4 @@
 
 **Budget.** Offline ingestion, retrieval, and extractive display have no API charge. The optional model runs need an explicit key, model, price check, and spend cap. No paid calls are triggered by setup.
 
-**Current state.** The French application and corrected corpus are available in the `0.1.0` application release. The reviewed 45/45/90-question benchmark, validation selection, frozen three-system Kaggle test, and owner-provided blind answer judgments are complete. The [final evaluation](../reports/final-evaluation.md) reports measured errors and does not establish general legal reliability or evaluate the application's Groq mode.
+**Current state.** Version `1.0.0` packages the French application and corrected corpus workflow with a completed 45/45/90-question benchmark, validation selection, frozen three-system Kaggle test, and owner-provided blind answer judgments. The [final evaluation](../reports/final-evaluation.md) reports measured errors and does not establish general legal reliability or evaluate the application's Groq mode.
