@@ -17,6 +17,9 @@ constitution-rag/
 PROJECT_LOG.md
 docs/demo-script.md
 docs/presentation.md
+docs/benchmark-status.md
+docs/project-scope.md
+data/annotations/questions.jsonl
 docs/experiments.md
 docs/release-and-judgments.md
 docs/v2-decision-gate.md
