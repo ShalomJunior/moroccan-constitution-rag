@@ -73,7 +73,8 @@ class ReproductionTests(unittest.TestCase):
             self.assertEqual(result["findings"][0]["path"], "docs/presentation.md")
 
     def test_publication_audit_flags_private_benchmark_and_notes(self):
-        for name in ("data/annotations/questions.jsonl", "docs/benchmark-status.md", "docs/project-scope.md"):
+        for name in ("data/annotations/questions.jsonl", "docs/benchmark-status.md", "docs/project-scope.md",
+                     "docs/ocr-review.md", "docs/annotation-guide.md", "reports/external-review-reconciliation.md"):
             with self.subTest(path=name), tempfile.TemporaryDirectory() as directory:
                 with patch("constitution_evidence.reproduction.subprocess.check_output",
                            return_value=(name + "\0").encode()):

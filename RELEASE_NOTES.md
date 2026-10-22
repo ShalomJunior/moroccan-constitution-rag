@@ -1,8 +1,10 @@
-# Version 1.0.3
+# Version 1.0.4
 
-Les annotations complètes du benchmark et les notes de suivi sont conservées localement. Le guide Kaggle décrit la préparation, l'exécution et la récupération des résultats. L'audit de publication vérifie aussi les liens de discussion privés. Le comportement de l'application et les résultats expérimentaux sont inchangés.
+Les procédures internes de revue restent locales. La documentation publique décrit l’installation, le fonctionnement et les résultats du système. Les références au corpus et les liens documentaires ont été actualisés.
 
 ## Versions précédentes
+
+- **1.0.3** : séparation des entrées privées du benchmark et clarification du guide Kaggle.
 
 - **1.0.2** : correction de la commande de reproduction des scores et des références historiques de la documentation.
 - **1.0.1** : intégration de la revue finale catégorielle. Sur 205 réponses sans erreur technique, 147 sont acceptables, dont 126 sans réserve et 21 avec réserves mineures. Les 65 erreurs techniques restent des échecs. Le [rapport final](reports/final-evaluation.md) détaille les résultats par système et leurs limites.

@@ -48,6 +48,7 @@ def publication_audit(root: Path = ROOT) -> dict:
     findings = []
     forbidden_exact = {".env", "PROJECT_LOG.md", "data/annotations/test-candidates.jsonl",
                        "data/annotations/questions.jsonl", "docs/benchmark-status.md", "docs/project-scope.md",
+                       "docs/ocr-review.md", "docs/annotation-guide.md", "reports/external-review-reconciliation.md",
                        "docs/demo-script.md", "docs/presentation.md", "docs/experiments.md", "docs/release-and-judgments.md",
                        "docs/v2-decision-gate.md", "reports/technical-report.md",
                        "reports/installation-and-usability.md"}
